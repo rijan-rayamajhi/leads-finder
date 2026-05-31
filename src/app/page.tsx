@@ -1,1610 +1,985 @@
 'use client';
 
-import { useState, useEffect, useRef } from 'react';
-import { Input } from '@/components/ui/input';
-import { Button } from '@/components/ui/button';
-import { Badge } from '@/components/ui/badge';
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
-import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription, SheetFooter } from '@/components/ui/sheet';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Alert, AlertTitle, AlertDescription } from '@/components/ui/alert';
-import { LeadsTable } from '@/components/leads-table';
-import { CRMLeadsTable } from '@/components/crm-leads-table';
-import { Lead, PipelineResult } from '@/types/lead';
-import { SearchHistoryItem } from '@/types/history';
+import { useState, useEffect } from 'react';
+import Link from 'next/link';
 import Image from 'next/image';
+import { Card, CardContent } from '@/components/ui/card';
+import { Badge } from '@/components/ui/badge';
 import { 
   Search, 
   Loader2, 
-  Filter, 
   CheckCircle2, 
-  AlertTriangle, 
-  Menu, 
-  X, 
+  MapPin, 
+  Phone, 
+  FileText, 
+  Star, 
+  Sparkles, 
+  TrendingUp, 
+  ShieldCheck, 
+  Send, 
+  Zap, 
+  HelpCircle, 
+  ChevronDown, 
+  ChevronUp, 
+  MessageSquareCode, 
+  Share2, 
+  Target,
+  ArrowRight,
   Database,
-  History,
-  UserCheck,
-  TrendingUp,
-  Calendar,
-  DollarSign,
-  Notebook,
-  MessageCircle,
-  Mail,
+  Globe,
+  Award,
   Copy,
-  Maximize2,
-  Minimize2,
-  ChevronLeft,
-  ChevronRight
+  Check
 } from 'lucide-react';
 
-const SUGGESTIONS = [
-  'salons in mumbai',
-  'dentists in bangalore',
-  'gyms in delhi',
-  'coaching classes in pune',
-  'real estate agents in hyderabad',
-];
-
-export default function LeadGenDashboard() {
-  const [query, setQuery] = useState('');
-  const [showAll, setShowAll] = useState(false);
-  const [intent, setIntent] = useState<'high' | 'low' | 'all'>('high');
-  const [leads, setLeads] = useState<Lead[]>([]);
-  const [isLoadingLeads, setIsLoadingLeads] = useState(true);
-  const [isRunningPipeline, setIsRunningPipeline] = useState(false);
-  const [callingId, setCallingId] = useState<number | null>(null);
-  const [refreshTrigger, setRefreshTrigger] = useState(0);
-  
-  // CRM leads and loading state
-  const [crmLeads, setCrmLeads] = useState<Lead[]>([]);
-  const [isLoadingCrm, setIsLoadingCrm] = useState(true);
-  const [crmRefreshTrigger, setCrmRefreshTrigger] = useState(0);
-  const [crmStatusFilter, setCrmStatusFilter] = useState<string>('all');
-  const [selectedCRMLead, setSelectedCRMLead] = useState<Lead | null>(null);
-  
-  // CRM Lead Notes Editor fields
-  const [editorStatus, setEditorStatus] = useState<'no_answer' | 'contacted' | 'meeting' | 'won' | 'lost'>('no_answer');
-  const [editorNotes, setEditorNotes] = useState<string>('');
-  const [editorFollowUp, setEditorFollowUp] = useState<string>('');
-  const [editorValue, setEditorValue] = useState<number>(0);
-  
-  // CRM Contact & Outreach Editor fields
-  const [editorPhone, setEditorPhone] = useState<string>('');
-  const [editorWebsite, setEditorWebsite] = useState<string>('');
-  const [editorEmail, setEditorEmail] = useState<string>('');
-  const [editorWAPitch, setEditorWAPitch] = useState<string>('');
-  const [editorEmailSubject, setEditorEmailSubject] = useState<string>('');
-  const [editorEmailBody, setEditorEmailBody] = useState<string>('');
-  
-  // Clipboard Copy Feedback States
-  const [copiedWA, setCopiedWA] = useState(false);
-  const [copiedEmail, setCopiedEmail] = useState(false);
-  
-  // Outreach pitch template selector
-  const [selectedTemplateKey, setSelectedTemplateKey] = useState<'no_site' | 'broken_site' | 'weak_site'>('no_site');
-
-  // Search history state
-  const [history, setHistory] = useState<SearchHistoryItem[]>([]);
-
-  // Navigation and filter states
-  const [activeTab, _setActiveTab] = useState<'prospects' | 'crm' | 'history'>('prospects');
-
-  const setActiveTab = (tab: 'prospects' | 'crm' | 'history') => {
-    _setActiveTab(tab);
-    if (typeof window !== 'undefined') {
-      localStorage.setItem('leads_finder_active_tab', tab);
-      window.location.hash = tab;
-    }
-  };
-
-  useEffect(() => {
-    if (typeof window !== 'undefined') {
-      const hash = window.location.hash.replace('#', '') as 'prospects' | 'crm' | 'history';
-      if (['prospects', 'crm', 'history'].includes(hash)) {
-        setTimeout(() => _setActiveTab(hash), 0);
-      } else {
-        const savedTab = localStorage.getItem('leads_finder_active_tab') as 'prospects' | 'crm' | 'history';
-        if (['prospects', 'crm', 'history'].includes(savedTab)) {
-          setTimeout(() => _setActiveTab(savedTab), 0);
-        }
-      }
-    }
-  }, []);
-
-  const [searchFilter, setSearchFilter] = useState<string | null>(null);
-
-  // Pipeline result state
-  const [pipelineResult, setPipelineResult] = useState<PipelineResult | null>(null);
-  const [errorText, setErrorText] = useState<string | null>(null);
-
-  // Mobile sidebar state
-  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
-
-  // Sidebar toggle and sizing states
-  const [leftSidebarCollapsed, setLeftSidebarCollapsed] = useState(false);
-  const [notesSidebarWide, setNotesSidebarWide] = useState(false);
-
-  // Pagination state
-  const [currentPage, setCurrentPage] = useState(1);
-  const [pageSize, setPageSize] = useState(10);
-
-  // Real-time progress tracking state
-  const [progressLogs, setProgressLogs] = useState<string[]>([]);
-  
-  // Scraper console container ref for local scrolling
-  const consoleContainerRef = useRef<HTMLDivElement | null>(null);
-
-  // Confirmation dialogs state
-  const [confirmDialogOpen, setConfirmDialogOpen] = useState(false);
-  const [confirmDialogAction, setConfirmDialogAction] = useState<(() => void) | null>(null);
-  const [confirmDialogTitle, setConfirmDialogTitle] = useState('');
-  const [confirmDialogDesc, setConfirmDialogDesc] = useState('');
-
-
-  const fetchHistory = async () => {
-    try {
-      const res = await fetch('/api/history');
-      if (res.ok) {
-        const data = await res.json();
-        setHistory(data);
-      }
-    } catch (err) {
-      console.error('Failed to fetch search history:', err);
-    }
-  };
-
-  useEffect(() => {
-    const timer = setTimeout(() => {
-      fetchHistory();
-    }, 0);
-    return () => clearTimeout(timer);
-  }, []);
-
-  // Auto-scroll scraper console locally to bottom as logs stream in
-  useEffect(() => {
-    if (consoleContainerRef.current) {
-      consoleContainerRef.current.scrollTop = consoleContainerRef.current.scrollHeight;
-    }
-  }, [progressLogs]);
-
-  useEffect(() => {
-    let active = true;
-    
-    const timer = setTimeout(() => {
-      if (active) setIsLoadingLeads(true);
-    }, 0);
-
-    fetch(`/api/leads?called=false&showAll=${showAll}&intent=${intent}`)
-      .then((res) => {
-        if (!res.ok) throw new Error('Failed to fetch leads from server.');
-        return res.json();
-      })
-      .then((data) => {
-        if (active) {
-          setLeads(data);
-          setErrorText(null);
-        }
-      })
-      .catch((err: unknown) => {
-        if (active) {
-          const error = err as Error;
-          setErrorText(error.message || 'Something went wrong fetching leads.');
-        }
-      })
-      .finally(() => {
-        clearTimeout(timer);
-        if (active) setIsLoadingLeads(false);
-      });
-
-    return () => {
-      active = false;
-      clearTimeout(timer);
-    };
-  }, [showAll, intent, refreshTrigger]);
-
-  // Fetch CRM leads (called = true)
-  useEffect(() => {
-    let active = true;
-    
-    if (activeTab !== 'crm') return;
-
-    const timer = setTimeout(() => {
-      if (active) setIsLoadingCrm(true);
-    }, 0);
-
-    fetch('/api/leads?called=true')
-      .then((res) => {
-        if (!res.ok) throw new Error('Failed to fetch CRM leads.');
-        return res.json();
-      })
-      .then((data) => {
-        if (active) {
-          setCrmLeads(data);
-          setErrorText(null);
-        }
-      })
-      .catch((err: unknown) => {
-        if (active) {
-          const error = err as Error;
-          setErrorText(error.message || 'Something went wrong fetching CRM leads.');
-        }
-      })
-      .finally(() => {
-        clearTimeout(timer);
-        if (active) setIsLoadingCrm(false);
-      });
-
-    return () => {
-      active = false;
-      clearTimeout(timer);
-    };
-  }, [activeTab, crmRefreshTrigger]);
-
-  // Update CRM Lead details (status, notes, deal value, follow-up)
-  const handleUpdateCRMLead = async (id: number, fields: Partial<Lead>) => {
-    try {
-      const res = await fetch('/api/leads', {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ id, ...fields }),
-      });
-
-      if (!res.ok) {
-        throw new Error('Failed to save CRM details.');
-      }
-
-      const updateList = (prev: Lead[]) => {
-        if (fields.called === false) {
-          return prev.filter((lead) => lead.id !== id);
-        }
-        return prev.map((lead) => (lead.id === id ? { ...lead, ...fields } : lead));
-      };
-
-      setLeads((prev) => {
-        if (fields.called === false) {
-          return prev.filter((lead) => lead.id !== id);
-        }
-        return prev.map((lead) => (lead.id === id ? { ...lead, ...fields } : lead));
-      });
-      setCrmLeads(updateList);
-      
-      if (selectedCRMLead && selectedCRMLead.id === id) {
-        setSelectedCRMLead(prev => prev ? { ...prev, ...fields } : null);
-      }
-
-      setRefreshTrigger((prev) => prev + 1);
-      setCrmRefreshTrigger((prev) => prev + 1);
-    } catch (err: unknown) {
-      const error = err as Error;
-      setErrorText(error.message || 'Could not update lead details.');
-    }
-  };
-
-  // Outreach Pitch Templates dictionary
-  const OUTREACH_TEMPLATES = {
-    no_site: {
-      name: 'No Active Website',
-      subject: (name: string) => `Improving Online Visibility for ${name}`,
-      email: (name: string) => `Hi ${name},\n\nI recently came across your business online. I noticed that your business does not seem to have an active website, which could be causing you to miss out on local customers who are looking for your services.\n\nI specialize in helping local businesses launch fast, secure, and mobile-friendly websites that turn web visitors into paying customers.\n\nAre you available for a brief, 5-minute phone call this week to see how we can fix this?\n\nBest regards,\n[Your Name]`,
-      whatsapp: (name: string) => `Hi ${name}, I noticed your business does not have an active website. I build high-converting websites for businesses. Let me know if you would be open to a quick call to look at potential fixes.`
+// Simulated Leads Data
+const MOCK_SCAN_LEADS = {
+  'salons': [
+    {
+      name: 'Bella Spas & Salon',
+      city: 'Boston',
+      score: 88,
+      status: 'No Website',
+      reason: 'Business has a 4.7⭐ rating with 89 reviews, but absolutely no active website. Missing out on roughly 350+ organic local search visits every month.',
+      phone: '+1 (617) 555-0129',
+      value: 1200,
+      pitch: "Hi Bella Spas team! I found your highly-rated salon on Google Maps in Boston. I noticed you don't have a website listed, meaning you're losing customers to competitors. I build high-converting mobile websites. Open to a quick chat?"
     },
-    broken_site: {
-      name: 'Broken/Offline Website',
-      subject: (name: string) => `Fixing Website Downtime for ${name}`,
-      email: (name: string) => `Hi ${name},\n\nI recently tried visiting your website. I noticed that your site appears to be broken or offline, which means potential customers searching for you online cannot reach you.\n\nI build high-speed, secure, mobile-friendly websites and can get your online presence back up and running quickly.\n\nAre you available for a brief, 5-minute phone call this week to discuss how we can fix this?\n\nBest regards,\n[Your Name]`,
-      whatsapp: (name: string) => `Hi ${name}, I noticed your website appears to be offline or broken. I build secure, high-converting websites. Let me know if you would be open to a quick call to get it fixed.`
+    {
+      name: 'Nail Elegance Studio',
+      city: 'Boston',
+      score: 94,
+      status: 'Website Offline',
+      reason: 'Website listed on Google Maps returns a "502 Bad Gateway" server error. Existing customers cannot book or find your hours.',
+      phone: '+1 (617) 555-0182',
+      value: 1500,
+      pitch: "Hello Nail Elegance! I tried visiting your website from Google and noticed it returns a server error. I specialize in restoring broken local business websites. Let's get it fixed this week so you don't lose booking revenues."
     },
-    weak_site: {
-      name: 'Modern Website Redesign',
-      subject: (name: string) => `Modern Website Redesign for ${name}`,
-      email: (name: string) => `Hi ${name},\n\nI recently visited your website. I noticed that it could benefit from a few modern upgrades (like mobile optimization and stronger call-to-actions) to help you convert more web visitors into paying customers.\n\nI specialize in redesigning websites for local businesses to increase lead generation.\n\nAre you available for a brief, 5-minute phone call this week to review some quick fixes?\n\nBest regards,\n[Your Name]`,
-      whatsapp: (name: string) => `Hi ${name}, I looked at your website and noticed it could benefit from mobile optimization. Redesigning can increase local leads. Let me know if you are open to a quick call to review fixes.`
+    {
+      name: 'Glow Hair Bar',
+      city: 'Boston',
+      score: 79,
+      status: 'Outdated & Slow',
+      reason: 'Website loads in 7.2s and has no mobile responsiveness. Standard mobile speed is 2.5s. High bounce rates expected.',
+      phone: '+1 (617) 555-0199',
+      value: 950,
+      pitch: "Hi Glow Hair Bar! I visited your site and noticed it takes over 7 seconds to load on mobile. Restructuring it to be mobile-optimized can double your online inquiries. Would you be open to a brief call to see quick fixes?"
     }
-  };
-
-  // Open Lead Sheet editor
-  const handleOpenLeadNotes = (lead: Lead) => {
-    setSelectedCRMLead(lead);
-    setEditorStatus(lead.crm_status || 'no_answer');
-    setEditorNotes(lead.notes || '');
-    setEditorFollowUp(lead.follow_up_at ? lead.follow_up_at.substring(0, 10) : '');
-    setEditorValue(lead.deal_value || 0);
-
-    setEditorPhone(lead.phone || '');
-    setEditorWebsite(lead.website || '');
-    setEditorEmail(lead.email || '');
-
-    let defaultKey: 'no_site' | 'broken_site' | 'weak_site' = 'no_site';
-    if (lead.website) {
-      const reasonLower = lead.reason.toLowerCase();
-      if (reasonLower.includes('broken')) {
-        defaultKey = 'broken_site';
-      } else {
-        defaultKey = 'weak_site';
-      }
+  ],
+  'dentists': [
+    {
+      name: 'Downtown Dental Partners',
+      city: 'Miami',
+      score: 91,
+      status: 'No Website',
+      reason: 'Premium dental location with 4.8⭐ and 142 reviews, but no website listed. Competitors are bidding on their local keywords.',
+      phone: '+1 (305) 555-0211',
+      value: 2500,
+      pitch: "Hi Downtown Dental! I saw your amazing reviews in Miami but noticed you don't have a website. A simple high-converting page could easily pull in 40+ new high-value appointments monthly. Let's connect!"
+    },
+    {
+      name: 'Elite Orthodontics',
+      city: 'Miami',
+      score: 87,
+      status: 'Website Offline',
+      reason: 'Domain name has expired or DNS records are unconfigured. Website is completely blank.',
+      phone: '+1 (305) 555-0244',
+      value: 3000,
+      pitch: "Hello Elite Orthodontics team! I noticed your website domain is currently showing an expired page. I build fast, secure medical/dental websites and can recover your online presence. Let me know if you have 5 minutes."
+    },
+    {
+      name: 'Bright Smiles Miami',
+      city: 'Miami',
+      score: 76,
+      status: 'Outdated & Slow',
+      reason: 'No SSL security certificate installed (shows "Not Secure" warning in browser). Mobile layout is broken.',
+      phone: '+1 (305) 555-0288',
+      value: 1800,
+      pitch: "Hi Bright Smiles! Your Google listing is excellent, but your website shows a 'Not Secure' warning, which drives away safety-conscious patients. Let's secure your site and redesign it for high conversions."
     }
-    
-    setSelectedTemplateKey(defaultKey);
-
-    const name = lead.name || 'Business Owner';
-    const template = OUTREACH_TEMPLATES[defaultKey];
-    setEditorEmailSubject(template.subject(name));
-    setEditorEmailBody(template.email(name));
-    setEditorWAPitch(template.whatsapp(name));
-  };
-
-  // Handle switching template from dropdown
-  const handleTemplateChange = (key: string) => {
-    const templateKey = key as 'no_site' | 'broken_site' | 'weak_site';
-    setSelectedTemplateKey(templateKey);
-    if (!selectedCRMLead) return;
-    const name = selectedCRMLead.name || 'Business Owner';
-    const template = OUTREACH_TEMPLATES[templateKey];
-    setEditorEmailSubject(template.subject(name));
-    setEditorEmailBody(template.email(name));
-    setEditorWAPitch(template.whatsapp(name));
-  };
-
-  const handleSaveEditorChanges = async () => {
-    if (!selectedCRMLead) return;
-    await handleUpdateCRMLead(selectedCRMLead.id, {
-      crm_status: editorStatus,
-      notes: editorNotes,
-      follow_up_at: editorFollowUp ? new Date(editorFollowUp).toISOString() : null,
-      deal_value: editorValue,
-      phone: editorPhone || null,
-      website: editorWebsite || null,
-      email: editorEmail || null
-    });
-    setSelectedCRMLead(null);
-  };
-
-  // Run scraping pipeline
-  const handleRunPipeline = async (e?: React.FormEvent) => {
-    if (e) e.preventDefault();
-    if (!query.trim() || isRunningPipeline) return;
-
-    setIsRunningPipeline(true);
-    setPipelineResult(null);
-    setErrorText(null);
-    setProgressLogs([]);
-
-    try {
-      const res = await fetch('/api/run', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ query: query.trim() }),
-      });
-
-      if (!res.ok) {
-        throw new Error('Pipeline execution initiation failed.');
-      }
-
-      const reader = res.body?.getReader();
-      const decoder = new TextDecoder();
-
-      if (!reader) {
-        throw new Error('Readable stream progress reading is not supported by your browser.');
-      }
-
-      let buffer = '';
-      while (true) {
-        const { value, done } = await reader.read();
-        if (done) break;
-
-        buffer += decoder.decode(value, { stream: true });
-        const lines = buffer.split('\n\n');
-        buffer = lines.pop() || '';
-
-        for (const line of lines) {
-          const trimmedLine = line.trim();
-          if (trimmedLine.startsWith('data: ')) {
-            try {
-              const data = JSON.parse(trimmedLine.slice(6));
-              if (data.status === 'progress') {
-                setProgressLogs((prev) => [...prev, data.message]);
-              } else if (data.status === 'complete') {
-                setPipelineResult(data.result);
-              } else if (data.status === 'error') {
-                throw new Error(data.message || 'Pipeline failed during streaming execution.');
-              }
-            } catch (errParse) {
-              console.error('Error parsing stream event frame:', errParse);
-            }
-          }
-        }
-      }
-
-      setRefreshTrigger((prev) => prev + 1);
-      setCurrentPage(1);
-      fetchHistory();
-    } catch (err: unknown) {
-      const error = err as Error;
-      setErrorText(error.message || 'Something went wrong. Try again.');
-    } finally {
-      setIsRunningPipeline(false);
+  ],
+  'gyms': [
+    {
+      name: 'Iron Temple Fitness',
+      city: 'Austin',
+      score: 85,
+      status: 'No Website',
+      reason: 'High organic engagement on Instagram, but zero official website to process gym membership signups or class bookings.',
+      phone: '+1 (512) 555-0310',
+      value: 1800,
+      pitch: "Hi Iron Temple team! Love your gym's energy in Austin. I noticed you don't have a website to automate signups. I can build a clean site with built-in membership forms. Let me know if you're open to a chat."
+    },
+    {
+      name: 'Peak CrossFit Lab',
+      city: 'Austin',
+      score: 93,
+      status: 'Website Offline',
+      reason: 'Website returns a "Connection Timed Out" error. Impedes local fitness search discovery.',
+      phone: '+1 (512) 555-0331',
+      value: 2200,
+      pitch: "Hello Peak CrossFit! Your Google page is great, but your website link is currently down. I build secure, fast athletic sites and can get you back online immediately. When is a good time for a 5-minute call?"
+    },
+    {
+      name: 'Core & Cardio Studio',
+      city: 'Austin',
+      score: 80,
+      status: 'Outdated & Slow',
+      reason: 'Old static site built in 2016. Page size is 12MB. Take 9.4s to render fully. Broken contact forms.',
+      phone: '+1 (512) 555-0355',
+      value: 1400,
+      pitch: "Hi Core & Cardio! I checked your site on mobile and noticed it's very slow to load (9+ seconds) with broken forms. A modern, lightweight design will double your signup rate. Let's schedule a call to discuss."
     }
-  };
+  ]
+};
 
-  // Delete search history item
-  const handleDeleteHistoryItem = async (e: React.MouseEvent, id: number) => {
-    e.stopPropagation();
-    try {
-      const res = await fetch(`/api/history?id=${id}`, {
-        method: 'DELETE',
-      });
-      if (res.ok) {
-        setHistory((prev) => prev.filter((item) => item.id !== id));
-      } else {
-        throw new Error('Failed to delete history item');
-      }
-    } catch (err: unknown) {
-      const error = err as Error;
-      setErrorText(error.message || 'Could not delete history item.');
+export default function LandingPage() {
+  // Simulator State
+  const [selectedCategory, setSelectedCategory] = useState<'salons' | 'dentists' | 'gyms'>('salons');
+  const [customQuery, setCustomQuery] = useState('');
+  const [isScanning, setIsScanning] = useState(false);
+  const [scanStep, setScanStep] = useState(0);
+  const [scanLogs, setScanLogs] = useState<string[]>([]);
+  const [scanResultLeads, setScanResultLeads] = useState<any[] | null>(null);
+  const [copiedIndex, setCopiedIndex] = useState<number | null>(null);
+
+  // Pricing State
+  const [billingPeriod, setBillingPeriod] = useState<'monthly' | 'annual'>('monthly');
+
+  // FAQ State
+  const [expandedFaq, setExpandedFaq] = useState<number | null>(null);
+
+  // Auto-scroll simulation logs
+  useEffect(() => {
+    if (isScanning && scanStep < 6) {
+      const logsSequence = [
+        `Connecting to Google Maps API & Places search workers...`,
+        `Searching for "${customQuery || (selectedCategory === 'salons' ? 'salons in Boston' : selectedCategory === 'dentists' ? 'dentists in Miami' : 'gyms in Austin')}"...`,
+        `Analyzing 45 Google Place business profile markers...`,
+        `Running Intelligent Web Crawler & domain resolver audits...`,
+        `Evaluating accessibility, SSL security & page load parameters...`,
+        `Calculating Lead Intent & SEO marketing opportunity scores...`
+      ];
+
+      const timer = setTimeout(() => {
+        setScanLogs(prev => [...prev, `[${new Date().toLocaleTimeString()}] ${logsSequence[scanStep]}`]);
+        setScanStep(prev => prev + 1);
+      }, scanStep === 0 ? 300 : 700);
+
+      return () => clearTimeout(timer);
+    } else if (isScanning && scanStep === 6) {
+      const timer = setTimeout(() => {
+        setScanLogs(prev => [...prev, `[${new Date().toLocaleTimeString()}] ✅ Instant Scan Completed! Successfully stored 3 Hot Leads in CRM.`]);
+        setScanResultLeads(MOCK_SCAN_LEADS[selectedCategory]);
+        setIsScanning(false);
+      }, 500);
+      return () => clearTimeout(timer);
     }
+  }, [isScanning, scanStep, selectedCategory, customQuery]);
+
+  const handleStartScan = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (isScanning) return;
+    setScanLogs([]);
+    setScanResultLeads(null);
+    setScanStep(0);
+    setIsScanning(true);
   };
 
-  // Clear all search history (now using dialog)
-  const handleClearAllHistory = () => {
-    setConfirmDialogTitle('Clear All History');
-    setConfirmDialogDesc('Are you sure you want to permanently clear all search history? This action cannot be undone.');
-    setConfirmDialogAction(() => async () => {
-      try {
-        const res = await fetch('/api/history?all=true', {
-          method: 'DELETE',
-        });
-        if (res.ok) {
-          setHistory([]);
-        } else {
-          throw new Error('Failed to clear search history');
-        }
-      } catch (err: unknown) {
-        const error = err as Error;
-        setErrorText(error.message || 'Could not clear history.');
-      }
-      setConfirmDialogOpen(false);
-    });
-    setConfirmDialogOpen(true);
+  const copyToClipboard = (text: string, index: number) => {
+    navigator.clipboard.writeText(text);
+    setCopiedIndex(index);
+    setTimeout(() => setCopiedIndex(null), 2000);
   };
 
-  // Mark a lead as called (optimistic update)
-  const handleMarkCalled = async (id: number) => {
-    setCallingId(id);
-    
-    const originalLeads = [...leads];
-    
-    if (!showAll) {
-      setLeads((prev) => prev.filter((lead) => lead.id !== id));
-    } else {
-      setLeads((prev) =>
-        prev.map((lead) =>
-          lead.id === id ? { ...lead, called: true, called_at: new Date().toISOString() } : lead
-        )
-      );
+  const faqs = [
+    {
+      q: "How does the scraping and auditing process work?",
+      a: "Leads Finder interfaces with local directory data on Google Maps and runs an immediate, headless web crawl on every business website found. It programmatically checks if the website resolves, registers errors (like 404, 502, or DNS timeouts), detects if there's no website listed, and calculates performance indicators like mobile speed and SSL certificates."
+    },
+    {
+      q: "Do I need my own Google API keys or proxies?",
+      a: "Not at all. Everything is handled out-of-the-box by our hosted scraping clusters. You simply enter a niche and a city, click 'Scrape', and let our background workers generate lists of high-intent prospects."
+    },
+    {
+      q: "What makes a prospect 'High Intent'?",
+      a: "Our proprietary Lead Scoring Engine rates opportunities out of 100. High-intent leads (usually scored 80+) are highly-rated, popular businesses that have a significant number of Google reviews, but currently have no website, a completely broken website, or major security flaws. Because they already have organic customers, they are highly motivated to invest in website fixes."
+    },
+    {
+      q: "Can I customize the outreach templates?",
+      a: "Yes! In your `/dashboard` CRM panel, you have an Outreach Assistant. Based on whether a lead has 'No active website', a 'Broken website', or an 'Outdated layout', it automatically selects the most effective copywriting templates. You can customize them inside the editor, copy them with a single click, or send them directly via WhatsApp or Email."
+    },
+    {
+      q: "Is there a limit to how many searches I can perform?",
+      a: "Limits vary based on your plan. The Starter plan provides 15 monthly scans, the Professional plan includes 75 scans, and the Agency plan offers unlimited scans with priority multi-threaded scraping nodes."
     }
-
-    try {
-      const res = await fetch('/api/leads', {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ id }),
-      });
-
-      if (!res.ok) {
-        throw new Error('Could not update lead called status.');
-      }
-    } catch (err: unknown) {
-      const error = err as Error;
-      setLeads(originalLeads);
-      setErrorText(error.message || 'Could not update lead called status. Refreshed table.');
-    } finally {
-      setCallingId(null);
-    }
-  };
-
-  // Client-side filter query matching source
-  const filteredLeads = searchFilter
-    ? leads.filter((lead) => lead.source?.toLowerCase().trim() === searchFilter.toLowerCase().trim())
-    : leads;
-
-  // Calculate paginated leads
-  const totalLeads = filteredLeads.length;
-  const totalPages = Math.ceil(totalLeads / pageSize) || 1;
-  const activePage = Math.min(Math.max(1, currentPage), totalPages);
-
-  const startIndex = (activePage - 1) * pageSize;
-  const endIndex = startIndex + pageSize;
-  const paginatedLeads = filteredLeads.slice(startIndex, endIndex);
-
-  // CRM Search & Filters
-  const [crmSearchQuery, setCrmSearchQuery] = useState('');
-  const filteredCrmLeads = crmLeads.filter(l => {
-    const matchesStatus = crmStatusFilter === 'all' || l.crm_status === crmStatusFilter;
-    const matchesSearch = crmSearchQuery.trim() === '' || 
-      l.name?.toLowerCase().includes(crmSearchQuery.toLowerCase()) || 
-      l.phone?.includes(crmSearchQuery) || 
-      l.source?.toLowerCase().includes(crmSearchQuery.toLowerCase());
-    return matchesStatus && matchesSearch;
-  });
-
-  // Calculate CRM Stats
-  const activeCrmDeals = crmLeads.filter(l => l.crm_status !== 'lost' && l.crm_status !== 'won');
-  const pipelineValue = activeCrmDeals.reduce((sum, l) => sum + (l.deal_value || 0), 0);
-  
-  const wonDeals = crmLeads.filter(l => l.crm_status === 'won');
-  const wonRevenue = wonDeals.reduce((sum, l) => sum + (l.deal_value || 0), 0);
-  
-  const lostDeals = crmLeads.filter(l => l.crm_status === 'lost');
-  const totalClosed = wonDeals.length + lostDeals.length;
-  const closeRate = totalClosed > 0 ? Math.round((wonDeals.length / totalClosed) * 100) : 0;
-  
-  const pendingFollowUps = crmLeads.filter(l => {
-    if (!l.follow_up_at || l.crm_status === 'won' || l.crm_status === 'lost') return false;
-    const date = new Date(l.follow_up_at);
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-    const compDate = new Date(date);
-    compDate.setHours(0, 0, 0, 0);
-    return compDate.getTime() <= today.getTime();
-  }).length;
-
-  const totalCrmLeads = filteredCrmLeads.length;
-  const crmPages = Math.ceil(totalCrmLeads / pageSize) || 1;
-  const activeCrmPage = Math.min(Math.max(1, currentPage), crmPages);
-  const startCrmIdx = (activeCrmPage - 1) * pageSize;
-  const paginatedCrmLeads = filteredCrmLeads.slice(startCrmIdx, startCrmIdx + pageSize);
+  ];
 
   return (
-    <div className="min-h-screen bg-background flex font-sans antialiased text-foreground">
-      {/* Desktop Left Sidebar */}
-      <aside className={`hidden lg:flex border-r border-border bg-card flex-col fixed inset-y-0 left-0 z-40 transition-all duration-300 ease-in-out ${
-        leftSidebarCollapsed ? 'w-16' : 'w-64'
-      }`}>
-        <div className={`h-16 border-b border-border flex items-center shrink-0 bg-card transition-all duration-300 ${
-          leftSidebarCollapsed ? 'px-4 justify-center' : 'px-6 gap-2.5'
-        }`}>
-          <Image src="/logo.png" alt="Leads Finder" width={28} height={28} className="w-7 h-7 rounded-lg object-contain shadow-sm border border-border/50" />
-          {!leftSidebarCollapsed && <span className="text-sm font-bold text-foreground tracking-tight">Leads Finder</span>}
-        </div>
-        
-        {/* Sidebar Navigation */}
-        <nav className={`flex-1 py-6 space-y-1.5 transition-all duration-300 ${
-          leftSidebarCollapsed ? 'px-2' : 'px-4'
-        }`}>
-          {!leftSidebarCollapsed && (
-            <div className="px-3 py-1.5 text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">
-              Pipeline
-            </div>
-          )}
-          <button
-            onClick={() => setActiveTab('prospects')}
-            className={`w-full flex items-center rounded-lg text-xs font-semibold transition-all ${
-              leftSidebarCollapsed ? 'justify-center p-2' : 'gap-3 px-3 py-2'
-            } ${
-              activeTab === 'prospects'
-                ? 'bg-primary/10 text-primary'
-                : 'text-muted-foreground hover:bg-muted/50 hover:text-foreground'
-            }`}
-            title={leftSidebarCollapsed ? "Prospects" : undefined}
-          >
-            <Database className="w-4 h-4 shrink-0" />
-            {!leftSidebarCollapsed && <span>Prospects</span>}
-          </button>
-          <button
-            onClick={() => setActiveTab('crm')}
-            className={`w-full flex items-center rounded-lg text-xs font-semibold transition-all relative ${
-              leftSidebarCollapsed ? 'justify-center p-2' : 'gap-3 px-3 py-2'
-            } ${
-              activeTab === 'crm'
-                ? 'bg-primary/10 text-primary'
-                : 'text-muted-foreground hover:bg-muted/50 hover:text-foreground'
-            }`}
-            title={leftSidebarCollapsed ? "CRM Dashboard" : undefined}
-          >
-            <UserCheck className="w-4 h-4 shrink-0" />
-            {!leftSidebarCollapsed && <span>CRM Dashboard</span>}
-            {pendingFollowUps > 0 && (
-              <Badge variant="destructive" className={`text-[8px] h-4 min-w-[16px] px-1 flex items-center justify-center animate-pulse ${leftSidebarCollapsed ? 'absolute -top-1 -right-1' : 'ml-auto'}`}>
-                {pendingFollowUps}
-              </Badge>
-            )}
-          </button>
-          <button
-            onClick={() => setActiveTab('history')}
-            className={`w-full flex items-center rounded-lg text-xs font-semibold transition-all ${
-              leftSidebarCollapsed ? 'justify-center p-2' : 'gap-3 px-3 py-2'
-            } ${
-              activeTab === 'history'
-                ? 'bg-primary/10 text-primary'
-                : 'text-muted-foreground hover:bg-muted/50 hover:text-foreground'
-            }`}
-            title={leftSidebarCollapsed ? "History" : undefined}
-          >
-            <History className="w-4 h-4 shrink-0" />
-            {!leftSidebarCollapsed && <span>History</span>}
-          </button>
-        </nav>
+    <div className="min-h-screen bg-background font-sans text-foreground selection:bg-primary/20 selection:text-primary relative overflow-x-hidden">
+      
+      {/* Decorative Gradient Blobs */}
+      <div className="absolute top-[-10%] left-[-20%] w-[60vw] h-[60vw] rounded-full bg-primary/10 blur-[120px] pointer-events-none -z-10" />
+      <div className="absolute top-[20%] right-[-10%] w-[50vw] h-[50vw] rounded-full bg-violet-600/10 blur-[150px] pointer-events-none -z-10" />
+      <div className="absolute bottom-[10%] left-[-15%] w-[45vw] h-[45vw] rounded-full bg-emerald-500/5 blur-[120px] pointer-events-none -z-10" />
 
-        {/* Sidebar Footer / Collapse Toggle */}
-        <div className={`p-4 border-t border-border shrink-0 bg-muted/10 transition-all duration-300 ${
-          leftSidebarCollapsed ? 'flex justify-center' : 'flex justify-end'
-        }`}>
-          <Button
-            variant="outline"
-            size="icon"
-            onClick={() => setLeftSidebarCollapsed(!leftSidebarCollapsed)}
-            className="h-8 w-8"
-            title={leftSidebarCollapsed ? "Expand Sidebar" : "Collapse Sidebar"}
-          >
-            {leftSidebarCollapsed ? <ChevronRight className="w-4 h-4" /> : <ChevronLeft className="w-4 h-4" />}
-          </Button>
-        </div>
-      </aside>
+      {/* Grid Pattern Overlay */}
+      <div className="absolute inset-0 bg-[linear-gradient(to_right,#8080800a_1px,transparent_1px),linear-gradient(to_bottom,#8080800a_1px,transparent_1px)] bg-[size:24px_24px] pointer-events-none -z-20" />
 
-      {/* Mobile Navigation Drawer - Using Shadcn Sheet */}
-      <Sheet open={mobileMenuOpen} onOpenChange={setMobileMenuOpen}>
-        <SheetContent side="left" className="w-64 p-0">
-          <SheetHeader className="h-16 border-b border-border flex flex-row items-center gap-2.5 px-6 space-y-0">
-            <Image src="/logo.png" alt="Leads Finder" width={28} height={28} className="w-7 h-7 rounded-lg object-contain shadow-sm border border-border/50" />
-            <SheetTitle className="text-sm font-bold tracking-tight">Leads Finder</SheetTitle>
-          </SheetHeader>
-          <SheetDescription className="sr-only">Navigation menu</SheetDescription>
+      {/* Global Navigation Header */}
+      <header className="border-b border-border/60 bg-background/70 backdrop-blur-md sticky top-0 z-50 transition-all">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
+          <Link href="/" className="flex items-center gap-2.5 hover:opacity-95 transition-opacity">
+            <Image src="/logo.png" alt="Leads Finder Logo" width={32} height={32} className="w-8 h-8 rounded-lg object-contain shadow-md border border-border/50" />
+            <span className="text-base font-extrabold tracking-tight bg-clip-text text-transparent bg-gradient-to-r from-foreground to-foreground/80">
+              Leads Finder
+            </span>
+          </Link>
 
-          <nav className="flex-1 px-4 py-6 space-y-1.5">
-            <div className="px-3 py-1.5 text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">
-              Pipeline
-            </div>
-            <button
-              onClick={() => {
-                setActiveTab('prospects');
-                setMobileMenuOpen(false);
-              }}
-              className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-xs font-semibold transition-all ${
-                activeTab === 'prospects'
-                  ? 'bg-primary/10 text-primary'
-                  : 'text-muted-foreground hover:bg-muted/50 hover:text-foreground'
-              }`}
-            >
-              <Database className="w-4 h-4 shrink-0" />
-              Prospects
-            </button>
-            <button
-              onClick={() => {
-                setActiveTab('crm');
-                setMobileMenuOpen(false);
-              }}
-              className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-xs font-semibold transition-all ${
-                activeTab === 'crm'
-                  ? 'bg-primary/10 text-primary'
-                  : 'text-muted-foreground hover:bg-muted/50 hover:text-foreground'
-              }`}
-            >
-              <UserCheck className="w-4 h-4 shrink-0" />
-              CRM Dashboard
-              {pendingFollowUps > 0 && (
-                <Badge variant="destructive" className="ml-auto text-[8px] h-4 min-w-[16px] px-1 animate-pulse">
-                  {pendingFollowUps}
-                </Badge>
-              )}
-            </button>
-            <button
-              onClick={() => {
-                setActiveTab('history');
-                setMobileMenuOpen(false);
-              }}
-              className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-xs font-semibold transition-all ${
-                activeTab === 'history'
-                  ? 'bg-primary/10 text-primary'
-                  : 'text-muted-foreground hover:bg-muted/50 hover:text-foreground'
-              }`}
-            >
-              <History className="w-4 h-4 shrink-0" />
-              History
-            </button>
+          {/* Desktop Nav Items */}
+          <nav className="hidden md:flex items-center gap-8">
+            <a href="#features" className="text-xs font-semibold text-muted-foreground hover:text-foreground transition-colors">Features</a>
+            <a href="#interactive-scan" className="text-xs font-semibold text-muted-foreground hover:text-foreground transition-colors">Live Demo</a>
+            <a href="#how-it-works" className="text-xs font-semibold text-muted-foreground hover:text-foreground transition-colors">How It Works</a>
+            <a href="#pricing" className="text-xs font-semibold text-muted-foreground hover:text-foreground transition-colors">Pricing</a>
+            <a href="#faqs" className="text-xs font-semibold text-muted-foreground hover:text-foreground transition-colors">FAQs</a>
           </nav>
-        </SheetContent>
-      </Sheet>
 
-      {/* Main Page Workspace Layout Container */}
-      <div className={`flex-1 flex flex-col min-h-screen transition-all duration-300 ease-in-out ${
-        leftSidebarCollapsed ? 'lg:pl-16' : 'lg:pl-64'
-      }`}>
-        {/* Dashboard Top Header */}
-        <header className="bg-card border-b sticky top-0 z-30 shadow-sm shrink-0">
-          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              {/* Mobile Sidebar Toggle */}
-              <Button
-                variant="ghost"
-                size="icon"
-                onClick={() => setMobileMenuOpen(true)}
-                className="lg:hidden h-11 w-11 flex items-center justify-center"
-              >
-                <Menu className="w-6 h-6" />
+          {/* CTA Buttons */}
+          <div className="flex items-center gap-3">
+            <Link href="/dashboard">
+              <Button variant="ghost" size="sm" className="hidden sm:inline-flex text-xs font-bold px-4 py-2 hover:bg-muted/60">
+                Log In
               </Button>
-              <div className="flex items-center gap-2.5">
-                <Image src="/logo.png" alt="Leads Finder" width={24} height={24} className="lg:hidden w-6 h-6 rounded-md object-contain shadow-sm border border-border/50" />
-                <h1 className="text-sm font-bold text-foreground leading-none">
-                  {activeTab === 'prospects' ? 'Prospects' : activeTab === 'crm' ? 'CRM Dashboard' : 'Search History'}
-                </h1>
-              </div>
+            </Link>
+            <Link href="/dashboard">
+              <Button size="sm" className="text-xs font-bold px-4 h-9 shadow-lg shadow-primary/20 hover:scale-[1.02] active:scale-[0.98] transition-all">
+                Launch App <ArrowRight className="w-3.5 h-3.5 ml-1.5" />
+              </Button>
+            </Link>
+          </div>
+        </div>
+      </header>
+
+      {/* Hero Section */}
+      <section className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-16 pb-20 text-center relative">
+        <div className="space-y-6 max-w-4xl mx-auto">
+          {/* Glassmorphism Badge */}
+          <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full border border-primary/20 bg-primary/5 backdrop-blur-sm text-[10px] sm:text-xs font-extrabold text-primary tracking-wide animate-in fade-in duration-500">
+            <Sparkles className="w-3.5 h-3.5 text-primary animate-pulse" />
+            <span>INSTANT WEB AUDITS AND SCRAPER IS ACTIVE</span>
+          </div>
+
+          {/* Premium Headline */}
+          <h1 className="text-3xl sm:text-5xl lg:text-6xl font-black text-foreground tracking-tight leading-[1.1] animate-in slide-in-from-bottom-3 duration-500">
+            Find Local Clients Who Don't Have{' '}
+            <span className="bg-clip-text text-transparent bg-gradient-to-r from-primary to-indigo-500">
+              Active Websites
+            </span>
+          </h1>
+
+          {/* Subheadline */}
+          <p className="text-sm sm:text-base md:text-lg text-muted-foreground font-medium max-w-2xl mx-auto leading-relaxed animate-in slide-in-from-bottom-4 duration-600">
+            Scrape directories, detect offline pages instantly, grade opportunities with custom scoring, and launch outreach pitches with a simple CRM dashboard.
+          </p>
+
+          {/* Action Callouts */}
+          <div className="flex flex-col sm:flex-row items-center justify-center gap-4 pt-4 animate-in slide-in-from-bottom-5 duration-700">
+            <Link href="/dashboard">
+              <Button size="lg" className="w-full sm:w-auto h-12 px-8 text-sm font-bold shadow-xl shadow-primary/25 hover:shadow-primary/30 hover:scale-[1.03] transition-all">
+                Start Finding Leads Free
+              </Button>
+            </Link>
+            <a href="#interactive-scan">
+              <Button variant="outline" size="lg" className="w-full sm:w-auto h-12 px-8 text-sm font-semibold border-border hover:bg-muted/40 transition-all">
+                Try Live Simulator <Zap className="w-4 h-4 ml-2 text-amber-500 animate-pulse" />
+              </Button>
+            </a>
+          </div>
+          
+          {/* Rating Badges */}
+          <div className="flex items-center justify-center gap-6 text-muted-foreground text-xs font-semibold pt-8 animate-in fade-in duration-800">
+            <div className="flex items-center gap-1.5">
+              <CheckCircle2 className="w-4 h-4 text-emerald-500" />
+              <span>No Credit Card Required</span>
+            </div>
+            <div className="flex items-center gap-1.5">
+              <CheckCircle2 className="w-4 h-4 text-emerald-500" />
+              <span>Setup in 60 Seconds</span>
+            </div>
+            <div className="flex items-center gap-1.5">
+              <CheckCircle2 className="w-4 h-4 text-emerald-500" />
+              <span>100% Secure Data</span>
             </div>
           </div>
-        </header>
+        </div>
+      </section>
 
-        {/* Scrollable Main Content Space */}
-        <main className="flex-1 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 md:py-8 w-full space-y-6">
-          {activeTab === 'prospects' && (
-            <>
-              {/* Dashboard Dynamic Real-time Stats */}
-              <section className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4 animate-in fade-in duration-300">
-                <Card>
-                  <CardContent className="p-4">
-                    <span className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider block">Total Prospects</span>
-                    <span className="text-2xl font-bold text-foreground tracking-tight block mt-1">{filteredLeads.length}</span>
-                  </CardContent>
-                </Card>
+      {/* Interactive Scan Simulator Section */}
+      <section id="interactive-scan" className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-16 border-t border-border/40 relative">
+        <div className="max-w-5xl mx-auto space-y-12">
+          
+          {/* Section Headers */}
+          <div className="text-center space-y-3">
+            <h2 className="text-2xl sm:text-3xl font-black text-foreground tracking-tight">
+              Experience the Scanning Pipeline
+            </h2>
+            <p className="text-xs sm:text-sm text-muted-foreground font-medium max-w-xl mx-auto leading-relaxed">
+              Test out our automated website verification crawler. Select a niche to launch a live simulated scan of target prospects.
+            </p>
+          </div>
 
-                <Card>
-                  <CardContent className="p-4">
-                    <span className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider block">Pending Calls</span>
-                    <span className="text-2xl font-bold text-foreground tracking-tight block mt-1">{filteredLeads.filter(l => !l.called).length}</span>
-                  </CardContent>
-                </Card>
+          {/* Simulator Console Wrapper */}
+          <Card className="border border-border/80 shadow-2xl overflow-hidden rounded-2xl bg-card/60 backdrop-blur-md">
+            
+            {/* Top Bar resembles MacOS Window Controls */}
+            <div className="bg-muted/50 border-b border-border/60 px-5 py-3.5 flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <span className="w-3 h-3 rounded-full bg-rose-500/80 inline-block" />
+                <span className="w-3 h-3 rounded-full bg-amber-500/80 inline-block" />
+                <span className="w-3 h-3 rounded-full bg-emerald-500/80 inline-block" />
+                <span className="text-[10px] font-bold text-muted-foreground font-mono ml-2">leads-finder-audit-worker.sh</span>
+              </div>
+              <Badge variant="secondary" className="text-[9px] font-bold tracking-wider uppercase border bg-emerald-500/10 text-emerald-600 border-emerald-500/20">
+                Simulator Sandbox
+              </Badge>
+            </div>
 
-                <Card>
-                  <CardContent className="p-4">
-                    <span className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider block">Hot Prospects</span>
-                    <span className="text-2xl font-bold text-foreground tracking-tight block mt-1">{filteredLeads.filter(l => l.score >= 70).length}</span>
-                  </CardContent>
-                </Card>
+            <CardContent className="p-6 sm:p-8 space-y-6">
+              
+              {/* Category selection */}
+              {!isScanning && !scanResultLeads && (
+                <form onSubmit={handleStartScan} className="space-y-6">
+                  <div className="space-y-3">
+                    <label className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider block">
+                      Step 1: Choose a local commercial niche
+                    </label>
+                    <div className="grid grid-cols-3 gap-3">
+                      {[
+                        { id: 'salons', title: 'Beauty Salons', count: 'Boston', icon: Sparkles },
+                        { id: 'dentists', title: 'Dentists', count: 'Miami', icon: Target },
+                        { id: 'gyms', title: 'Fitness Gyms', count: 'Austin', icon: TrendingUp }
+                      ].map(cat => {
+                        const Icon = cat.icon;
+                        const isSelected = selectedCategory === cat.id;
+                        return (
+                          <button
+                            key={cat.id}
+                            type="button"
+                            onClick={() => setSelectedCategory(cat.id as any)}
+                            className={`flex flex-col items-center justify-center p-4 rounded-xl border text-center transition-all duration-150 ${
+                              isSelected
+                                ? 'bg-primary/10 border-primary text-primary shadow-sm shadow-primary/5'
+                                : 'bg-background hover:bg-muted/40 border-border text-muted-foreground hover:text-foreground'
+                            }`}
+                          >
+                            <Icon className={`w-5 h-5 mb-2 ${isSelected ? 'text-primary' : 'text-muted-foreground'}`} />
+                            <span className="text-xs font-bold block">{cat.title}</span>
+                            <span className="text-[9px] font-medium text-muted-foreground mt-0.5">{cat.count}</span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
 
-                <Card>
-                  <CardContent className="p-4">
-                    <span className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider block">Avg Quality</span>
-                    <span className="text-2xl font-bold text-foreground tracking-tight block mt-1">
-                      {filteredLeads.length > 0 ? Math.round(filteredLeads.reduce((acc, l) => acc + l.score, 0) / filteredLeads.length) : 0}
-                    </span>
-                  </CardContent>
-                </Card>
-              </section>
-
-              {/* Search Panel Card */}
-              <Card>
-                <CardContent className="p-4 sm:p-6">
-                  <form onSubmit={handleRunPipeline} className="space-y-4">
+                  {/* Search Query Trigger Input */}
+                  <div className="space-y-3">
+                    <label className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider block">
+                      Step 2: Enter custom keywords or verify search query
+                    </label>
                     <div className="flex flex-col sm:flex-row gap-3">
                       <div className="relative flex-1">
                         <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-                        <Input
-                          id="search-input"
+                        <input
                           type="text"
-                          placeholder="Search prospects (e.g. salons in mumbai...)"
-                          value={query}
-                          onChange={(e) => setQuery(e.target.value)}
-                          disabled={isRunningPipeline}
-                          className="pl-10 h-11 lg:h-10"
+                          value={customQuery}
+                          onChange={(e) => setCustomQuery(e.target.value)}
+                          placeholder={`Find high-intent ${selectedCategory === 'salons' ? 'salons in Boston' : selectedCategory === 'dentists' ? 'dentists in Miami' : 'gyms in Austin'}...`}
+                          className="w-full pl-10 pr-4 h-11 text-xs font-semibold bg-background border border-border rounded-xl focus:outline-none focus:ring-2 focus:ring-primary/40 focus:border-primary transition-all"
                         />
                       </div>
                       <Button
                         type="submit"
-                        disabled={isRunningPipeline || !query.trim()}
-                        className="h-11 lg:h-10 px-5 font-semibold w-full sm:w-auto"
+                        className="h-11 px-6 font-bold shadow-lg shadow-primary/10 hover:shadow-primary/20"
                       >
-                        {isRunningPipeline ? (
+                        Launch Scan Pipeline <ArrowRight className="w-4 h-4 ml-2" />
+                      </Button>
+                    </div>
+                  </div>
+                </form>
+              )}
+
+              {/* Live Logging Animation Box */}
+              {isScanning && (
+                <div className="space-y-4">
+                  <div className="flex items-center justify-between border-b border-border/50 pb-2">
+                    <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider flex items-center gap-2">
+                      <Loader2 className="w-3.5 h-3.5 animate-spin text-primary" /> Running real-time site audit pipeline
+                    </span>
+                    <span className="text-[10px] font-bold font-mono text-primary">Progress: {Math.round((scanStep / 6) * 100)}%</span>
+                  </div>
+                  
+                  {/* Console Logs Terminal */}
+                  <div className="bg-black/90 text-zinc-300 font-mono text-[11px] p-5 rounded-xl space-y-2.5 max-h-56 overflow-y-auto leading-relaxed border border-zinc-800 shadow-inner">
+                    {scanLogs.map((log, idx) => (
+                      <div key={idx} className="flex items-start gap-2.5 animate-in fade-in slide-in-from-bottom-1 duration-100">
+                        {idx === scanLogs.length - 1 ? (
                           <>
-                            <Loader2 className="w-4 h-4 animate-spin mr-2" />
-                            Scraping…
+                            <span className="text-primary font-bold animate-pulse">⚡</span>
+                            <span className="text-white font-bold leading-normal">{log}</span>
                           </>
                         ) : (
                           <>
-                            <Search className="w-4 h-4 mr-2" />
-                            Scrape
+                            <span className="text-emerald-500 font-bold">✓</span>
+                            <span className="text-zinc-400 leading-normal">{log}</span>
                           </>
                         )}
-                      </Button>
-                    </div>
-                  </form>
-
-                  {/* Search Suggestions & History */}
-                  <div className="mt-4 space-y-4">
-                    {history.length > 0 && (
-                      <div className="space-y-2 animate-in fade-in duration-200">
-                        <div className="flex items-center justify-between">
-                          <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider flex items-center gap-1.5">
-                            <History className="w-3.5 h-3.5 text-muted-foreground" />
-                            Recent Searches
-                          </span>
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={handleClearAllHistory}
-                            className="text-[10px] font-bold text-destructive hover:text-destructive/80 h-6 px-2"
-                          >
-                            Clear All
-                          </Button>
-                        </div>
-                        <div className="flex flex-wrap gap-2">
-                          {history.slice(0, 5).map((item) => (
-                            <div
-                              key={item.id}
-                              onClick={() => setQuery(item.query)}
-                              className="group flex items-center gap-1.5 px-2.5 py-1 bg-muted hover:bg-muted/80 active:bg-muted text-muted-foreground hover:text-foreground rounded-lg text-xs transition-all duration-150 cursor-pointer border border-border"
-                            >
-                              <span className="font-semibold">{item.query}</span>
-                              {item.last_stored > 0 && (
-                                <Badge variant="secondary" className="text-[10px] h-4 px-1 bg-emerald-500/10 text-emerald-600 border-emerald-500/20">
-                                  {item.last_stored} stored
-                                </Badge>
-                              )}
-                              <button
-                                type="button"
-                                onClick={(e) => handleDeleteHistoryItem(e, item.id)}
-                                className="text-muted-foreground hover:text-destructive p-0.5 rounded transition-colors ml-1"
-                                title="Remove from history"
-                              >
-                                <X className="w-3 h-3" />
-                              </button>
-                            </div>
-                          ))}
-                        </div>
                       </div>
-                    )}
-
-                    <div className="space-y-2">
-                      <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider block">
-                        {history.length > 0 ? "Popular Searches" : "Suggestions"}
-                      </span>
-                      <div className="flex flex-wrap items-center gap-2">
-                        {SUGGESTIONS.map((suggestion) => (
-                          <Button
-                            key={suggestion}
-                            variant="outline"
-                            size="sm"
-                            onClick={() => setQuery(suggestion)}
-                            disabled={isRunningPipeline}
-                            className="text-xs h-7 px-2.5 font-medium"
-                          >
-                            {suggestion}
-                          </Button>
-                        ))}
-                      </div>
-                    </div>
+                    ))}
                   </div>
-                </CardContent>
-              </Card>
-
-              {/* Dynamic Alerts (Error Banners) */}
-              {errorText && (
-                <Alert variant="destructive">
-                  <AlertTriangle className="h-4 w-4" />
-                  <AlertTitle>Error</AlertTitle>
-                  <AlertDescription>{errorText}</AlertDescription>
-                </Alert>
+                </div>
               )}
 
-              {/* Real-time Streaming Progress Console */}
-              {isRunningPipeline && (
-                <Card className="overflow-hidden animate-in fade-in slide-in-from-top-2 duration-300">
-                  <CardHeader className="bg-muted/40 px-5 py-3 border-b border-border">
-                    <CardTitle className="text-xs font-bold flex items-center gap-2">
-                      <Loader2 className="w-3.5 h-3.5 animate-spin text-primary" />
-                      Scraping Progress
-                    </CardTitle>
-                  </CardHeader>
-                  <CardContent ref={consoleContainerRef} className="p-5 max-h-60 overflow-y-auto space-y-2 text-xs font-sans">
-                    {progressLogs.length === 0 ? (
-                      <div className="flex items-center gap-2 text-muted-foreground">
-                        <Loader2 className="w-3.5 h-3.5 animate-spin text-muted-foreground" />
-                        <span>Initializing Places search workers...</span>
-                      </div>
-                    ) : (
-                      progressLogs.map((log, idx) => (
-                        <div key={idx} className="flex items-start gap-2.5 animate-in fade-in slide-in-from-bottom-1 duration-150">
-                          {idx === progressLogs.length - 1 ? (
-                            <>
-                              <span className="text-primary font-bold animate-pulse">⚡</span>
-                              <span className="text-foreground font-bold leading-normal">
-                                {log}
-                              </span>
-                            </>
-                          ) : (
-                            <>
-                              <span className="text-emerald-500 font-bold">✓</span>
-                              <span className="text-muted-foreground leading-normal">{log}</span>
-                            </>
-                          )}
-                        </div>
-                      ))
-                    )}
-                  </CardContent>
-                </Card>
-              )}
-
-              {/* Pipeline Status Summary Card */}
-              {pipelineResult && (
-                <Card className="border-emerald-500/10 bg-emerald-500/5 animate-in fade-in duration-300">
-                  <CardContent className="p-5 space-y-4">
-                    <div className="flex items-center justify-between border-b border-emerald-500/10 pb-3">
-                      <div className="flex items-center gap-2 text-emerald-600 dark:text-emerald-400 font-bold text-sm">
-                        <CheckCircle2 className="w-4.5 h-4.5" />
-                        <span>Pipeline Run Complete</span>
-                      </div>
-                      <Badge variant="secondary" className="bg-emerald-500/10 text-emerald-600 text-[10px] uppercase tracking-wider border-emerald-500/20">
-                        Database Synced
-                      </Badge>
+              {/* Scraped Results Display Cards */}
+              {scanResultLeads && (
+                <div className="space-y-6 animate-in fade-in duration-300">
+                  <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 border-b border-border/50 pb-4">
+                    <div>
+                      <h3 className="text-sm font-extrabold text-foreground flex items-center gap-2">
+                        <CheckCircle2 className="w-4 h-4 text-emerald-500" />
+                        Scanned leads matching your target criteria
+                      </h3>
+                      <p className="text-[10px] text-muted-foreground mt-0.5">
+                        Showing 3 high opportunity prospects with critical website gaps or non-existent domains.
+                      </p>
                     </div>
                     
-                    <div className="grid grid-cols-2 lg:grid-cols-4 gap-3.5">
-                      <Card className="shadow-sm">
-                        <CardContent className="p-3.5 flex flex-col justify-between">
-                          <span className="text-[9px] uppercase font-bold text-muted-foreground tracking-wider block">Scraped Candidates</span>
-                          <span className="text-xl font-black text-foreground block mt-1">{pipelineResult.scraped}</span>
-                          <span className="text-[9px] text-muted-foreground block mt-1">Google Places search results</span>
-                        </CardContent>
-                      </Card>
-
-                      <Card className="shadow-sm">
-                        <CardContent className="p-3.5 flex flex-col justify-between">
-                          <span className="text-[9px] uppercase font-bold text-muted-foreground tracking-wider block">Viable Leads</span>
-                          <span className="text-xl font-black text-foreground block mt-1">{pipelineResult.filtered}</span>
-                          <span className="text-[9px] text-rose-500 font-semibold block mt-1">
-                            {pipelineResult.scraped - pipelineResult.filtered} skipped (no phone)
-                          </span>
-                        </CardContent>
-                      </Card>
-
-                      <Card className="border-emerald-500/20 bg-emerald-500/5 shadow-sm">
-                        <CardContent className="p-3.5 flex flex-col justify-between">
-                          <span className="text-[9px] uppercase font-bold text-emerald-600 dark:text-emerald-400 tracking-wider block">Hot Prospects Stored</span>
-                          <span className="text-xl font-black text-emerald-600 dark:text-emerald-400 block mt-1">{pipelineResult.stored}</span>
-                          <span className="text-[9px] text-emerald-600 dark:text-emerald-400 font-semibold block mt-1">Score opportunity &gt; 50</span>
-                        </CardContent>
-                      </Card>
-
-                      <Card className="shadow-sm">
-                        <CardContent className="p-3.5 flex flex-col justify-between">
-                          <span className="text-[9px] uppercase font-bold text-muted-foreground tracking-wider block">Skipped/Duplicate</span>
-                          <span className="text-xl font-black text-foreground block mt-1">
-                            {pipelineResult.skipped_dedup + pipelineResult.skipped_score}
-                          </span>
-                          <span className="text-[9px] text-muted-foreground block mt-1 font-semibold">
-                            {pipelineResult.skipped_dedup} dup, {pipelineResult.skipped_score} low score
-                          </span>
-                        </CardContent>
-                      </Card>
-                    </div>
-                  </CardContent>
-                </Card>
-              )}
-
-              {/* Active Filter Badge */}
-              {searchFilter && (
-                <Alert className="bg-primary/10 border-primary/20 text-primary animate-in slide-in-from-top-2 duration-200">
-                  <Filter className="h-4 w-4" />
-                  <AlertTitle className="text-xs font-semibold">
-                    Showing prospects scraped from: <span className="underline font-bold">&ldquo;{searchFilter}&rdquo;</span>
-                  </AlertTitle>
-                  <AlertDescription>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => {
-                        setSearchFilter(null);
-                        setCurrentPage(1);
-                      }}
-                      className="text-[10px] font-bold h-6 px-2 mt-1"
-                    >
-                      Clear Filter
-                    </Button>
-                  </AlertDescription>
-                </Alert>
-              )}
-
-              {/* Leads Table Container */}
-              <Card className="overflow-hidden">
-                <CardHeader className="p-4 sm:p-6 border-b border-border flex flex-col xl:flex-row xl:items-center xl:justify-between gap-4 space-y-0">
-                  <div className="flex flex-col gap-1">
-                    <CardTitle className="text-base font-bold leading-none">Prospects Database</CardTitle>
-                    {intent === 'low' && (
-                      <CardDescription className="text-[11px] mt-1.5 flex items-center gap-1.5">
-                        <span>ℹ️</span> Low intent prospects are automatically deleted after 7 days to keep your database clean.
-                      </CardDescription>
-                    )}
-                  </div>
-                  
-                  <div className="flex flex-col sm:flex-row gap-3 w-full xl:w-auto">
-                    {/* Quality Intent Filter — Shadcn Tabs */}
-                    <Tabs value={intent} onValueChange={(v) => { setIntent(v as 'high' | 'low' | 'all'); setCurrentPage(1); }} className="flex-1 sm:flex-initial">
-                      <TabsList className="h-9 w-full sm:w-auto">
-                        <TabsTrigger value="high" className="text-xs font-semibold flex-1 sm:flex-none px-3">High Intent</TabsTrigger>
-                        <TabsTrigger value="low" className="text-xs font-semibold flex-1 sm:flex-none px-3">Low Intent</TabsTrigger>
-                        <TabsTrigger value="all" className="text-xs font-semibold flex-1 sm:flex-none px-3">All</TabsTrigger>
-                      </TabsList>
-                    </Tabs>
-
-                    {/* Show Called Toggle — Shadcn Tabs */}
-                    <Tabs value={showAll ? 'all' : 'uncalled'} onValueChange={(v) => { setShowAll(v === 'all'); setCurrentPage(1); }} className="flex-1 sm:flex-initial">
-                      <TabsList className="h-9 w-full sm:w-auto">
-                        <TabsTrigger value="uncalled" className="text-xs font-semibold flex-1 sm:flex-none px-3 gap-1.5">
-                          <Filter className="w-3.5 h-3.5" />
-                          Uncalled
-                        </TabsTrigger>
-                        <TabsTrigger value="all" className="text-xs font-semibold flex-1 sm:flex-none px-3">
-                          All Status
-                        </TabsTrigger>
-                      </TabsList>
-                    </Tabs>
-                  </div>
-                </CardHeader>
-
-                <div className="p-0">
-                  <LeadsTable
-                    leads={paginatedLeads}
-                    onMarkCalled={handleMarkCalled}
-                    isLoading={isLoadingLeads}
-                    callingId={callingId}
-                    currentPage={activePage}
-                    pageSize={pageSize}
-                    totalLeads={totalLeads}
-                    onPageChange={setCurrentPage}
-                    onPageSizeChange={setPageSize}
-                  />
-                </div>
-              </Card>
-            </>
-          )}
-
-          {activeTab === 'crm' && (
-            <>
-              {/* CRM Stats Grid */}
-              <section className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4 animate-in fade-in duration-300">
-                <Card>
-                  <CardContent className="p-4">
-                    <span className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider flex items-center gap-1.5">
-                      <TrendingUp className="w-3.5 h-3.5 text-primary" /> Active Pipeline
-                    </span>
-                    <span className="text-2xl font-bold text-foreground tracking-tight block mt-1">
-                      ${pipelineValue.toLocaleString()}
-                    </span>
-                    <span className="text-[10px] text-muted-foreground font-medium block mt-1.5">
-                      From {activeCrmDeals.length} active leads
-                    </span>
-                  </CardContent>
-                </Card>
-
-                <Card>
-                  <CardContent className="p-4">
-                    <span className="text-[10px] font-medium text-emerald-600 dark:text-emerald-400 uppercase tracking-wider flex items-center gap-1.5">
-                      <DollarSign className="w-3.5 h-3.5" /> Won Revenue
-                    </span>
-                    <span className="text-2xl font-bold text-emerald-600 dark:text-emerald-400 tracking-tight block mt-1">
-                      ${wonRevenue.toLocaleString()}
-                    </span>
-                    <span className="text-[10px] text-muted-foreground font-medium block mt-1.5">
-                      From {wonDeals.length} closed won deals
-                    </span>
-                  </CardContent>
-                </Card>
-
-                <Card>
-                  <CardContent className="p-4">
-                    <span className="text-[10px] font-medium text-rose-500 uppercase tracking-wider flex items-center gap-1.5">
-                      <Calendar className="w-3.5 h-3.5" /> Due Today / Overdue
-                    </span>
-                    <span className={`text-2xl font-bold tracking-tight block mt-1 ${pendingFollowUps > 0 ? 'text-rose-500 animate-pulse' : 'text-foreground'}`}>
-                      {pendingFollowUps}
-                    </span>
-                    <span className="text-[10px] text-muted-foreground font-medium block mt-1.5">
-                      Requires immediate action
-                    </span>
-                  </CardContent>
-                </Card>
-
-                <Card>
-                  <CardContent className="p-4">
-                    <span className="text-[10px] font-medium text-indigo-500 uppercase tracking-wider flex items-center gap-1.5">
-                      <UserCheck className="w-3.5 h-3.5" /> Close Rate
-                    </span>
-                    <span className="text-2xl font-bold text-foreground tracking-tight block mt-1">
-                      {closeRate}%
-                    </span>
-                    <span className="text-[10px] text-muted-foreground font-medium block mt-1.5">
-                      From {totalClosed} closed deals
-                    </span>
-                  </CardContent>
-                </Card>
-              </section>
-
-              {/* CRM Search & Filters control center */}
-              <Card>
-                <CardContent className="p-4 sm:p-5">
-                  <div className="flex flex-col lg:flex-row gap-4 justify-between items-center w-full">
-                    <div className="relative w-full lg:max-w-md">
-                      <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-                      <Input
-                        type="text"
-                        placeholder="Search CRM by lead name, phone, source..."
-                        value={crmSearchQuery}
-                        onChange={(e) => {
-                          setCrmSearchQuery(e.target.value);
-                          setCurrentPage(1);
+                    <div className="flex gap-2">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => {
+                          setScanResultLeads(null);
+                          setScanStep(0);
                         }}
-                        className="pl-10 h-11 lg:h-10 w-full"
-                      />
+                        className="text-[10px] font-bold h-8 border-border"
+                      >
+                        Reset Demo
+                      </Button>
+                      <Link href="/dashboard">
+                        <Button
+                          size="sm"
+                          className="text-[10px] font-bold h-8 bg-primary text-white"
+                        >
+                          Unlock Full CRM App <Sparkles className="w-3.5 h-3.5 ml-1.5" />
+                        </Button>
+                      </Link>
                     </div>
-
-                    {/* Status Filters — Tabs component */}
-                    <Tabs value={crmStatusFilter} onValueChange={(v) => { setCrmStatusFilter(v); setCurrentPage(1); }} className="w-full lg:w-auto overflow-x-auto scrollbar-none">
-                      <TabsList className="h-11 lg:h-9 w-full lg:w-auto flex flex-nowrap lg:flex-wrap items-center justify-start lg:justify-center border border-border p-1 rounded-lg bg-muted/40 whitespace-nowrap">
-                        {[
-                          { value: 'all', label: 'All' },
-                          { value: 'no_answer', label: 'Attempted' },
-                          { value: 'contacted', label: 'Contacted' },
-                          { value: 'meeting', label: 'Meeting' },
-                          { value: 'won', label: 'Won' },
-                          { value: 'lost', label: 'Lost' }
-                        ].map(tab => (
-                          <TabsTrigger key={tab.value} value={tab.value} className="text-xs font-semibold px-3 py-1 h-9 lg:h-7 flex items-center justify-center">
-                            {tab.label}
-                          </TabsTrigger>
-                        ))}
-                      </TabsList>
-                    </Tabs>
                   </div>
-                </CardContent>
-              </Card>
 
-              {/* Dynamic Alerts (Error Banners) */}
-              {errorText && (
-                <Alert variant="destructive">
-                  <AlertTriangle className="h-4 w-4" />
-                  <AlertTitle>Error</AlertTitle>
-                  <AlertDescription>{errorText}</AlertDescription>
-                </Alert>
+                  {/* Scraped leads list grid */}
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    {scanResultLeads.map((lead, idx) => (
+                      <Card key={idx} className="border border-border/80 shadow-md hover:shadow-lg transition-all duration-200 bg-background/50 flex flex-col justify-between">
+                        
+                        <div className="p-4 space-y-3.5">
+                          {/* Header name / badge */}
+                          <div className="flex items-start justify-between gap-2">
+                            <h4 className="text-xs font-black text-foreground tracking-tight leading-tight line-clamp-1">
+                              {lead.name}
+                            </h4>
+                            <Badge className="text-[9px] font-bold tracking-wider shrink-0 bg-red-500/10 text-red-500 border-red-500/20 uppercase">
+                              {lead.status}
+                            </Badge>
+                          </div>
+
+                          {/* MapPin / Phone contact channels */}
+                          <div className="space-y-1">
+                            <div className="flex items-center gap-1.5 text-[10px] text-muted-foreground font-semibold">
+                              <MapPin className="w-3 h-3 text-muted-foreground shrink-0" />
+                              <span>{lead.city}</span>
+                            </div>
+                            <div className="flex items-center gap-1.5 text-[10px] text-muted-foreground font-semibold">
+                              <Phone className="w-3 h-3 text-muted-foreground shrink-0" />
+                              <span>{lead.phone}</span>
+                            </div>
+                          </div>
+
+                          {/* Opportunities audits info */}
+                          <div className="p-3 bg-muted/40 rounded-lg border border-border/50 space-y-1.5">
+                            <div className="flex items-center justify-between">
+                              <span className="text-[9px] font-bold text-muted-foreground uppercase tracking-wider block">Lead Opportunity Score</span>
+                              <Badge variant="outline" className="text-[9px] font-bold px-1.5 h-4.5 bg-primary/5 text-primary border-primary/20">
+                                {lead.score}/100
+                              </Badge>
+                            </div>
+                            <p className="text-[10px] text-muted-foreground leading-relaxed font-medium">
+                              {lead.reason}
+                            </p>
+                          </div>
+                        </div>
+
+                        {/* Pitch execution buttons */}
+                        <div className="p-3 bg-muted/20 border-t border-border/50 flex items-center justify-between gap-2.5">
+                          <div className="flex flex-col">
+                            <span className="text-[8px] font-bold text-muted-foreground uppercase tracking-wider">Est. Deal Value</span>
+                            <span className="text-xs font-black text-foreground">${lead.value}</span>
+                          </div>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => copyToClipboard(lead.pitch, idx)}
+                            className="text-[10px] font-bold h-7.5 px-2 bg-primary/5 hover:bg-primary/10 text-primary border-primary/20 flex items-center gap-1.5"
+                          >
+                            {copiedIndex === idx ? (
+                              <>
+                                <Check className="w-3 h-3 text-emerald-500" />
+                                Copied!
+                              </>
+                            ) : (
+                              <>
+                                <Copy className="w-3 h-3" />
+                                Copy Pitch
+                              </>
+                            )}
+                          </Button>
+                        </div>
+
+                      </Card>
+                    ))}
+                  </div>
+                </div>
               )}
 
-              {/* CRM Database Table Container */}
-              <Card className="overflow-hidden">
-                <CardHeader className="p-4 sm:p-5 border-b border-border space-y-1">
-                  <CardTitle className="text-base font-bold leading-none">Sales Pipeline</CardTitle>
-                  <CardDescription className="text-[11px]">
-                    Manage active discussions, schedule pitches, record comments, and finalize won client rebuilds.
-                  </CardDescription>
-                </CardHeader>
+            </CardContent>
+          </Card>
+        </div>
+      </section>
 
-                <div className="p-0">
-                  <CRMLeadsTable
-                    leads={paginatedCrmLeads}
-                    onUpdateLead={handleUpdateCRMLead}
-                    onOpenNotes={handleOpenLeadNotes}
-                    isLoading={isLoadingCrm}
-                    currentPage={activeCrmPage}
-                    pageSize={pageSize}
-                    totalLeads={totalCrmLeads}
-                    onPageChange={setCurrentPage}
-                    onPageSizeChange={setPageSize}
-                  />
-                </div>
-              </Card>
-            </>
-          )}
-
-          {activeTab === 'history' && (
-            <Card className="overflow-hidden animate-in fade-in duration-300">
-              <CardHeader className="p-4 sm:p-6 border-b border-border flex flex-row items-center justify-between space-y-0">
-                <div>
-                  <CardTitle className="text-base font-bold leading-none flex items-center gap-2">
-                    <History className="w-4 h-4 text-muted-foreground" />
-                    Search History Control Center
-                  </CardTitle>
-                  <CardDescription className="text-[11px] mt-1">
-                    Review past scraping runs, lead yields, and rerun searches.
-                  </CardDescription>
-                </div>
-                {history.length > 0 && (
-                  <Button
-                    variant="destructive"
-                    size="sm"
-                    onClick={handleClearAllHistory}
-                    className="text-xs font-semibold px-3 py-1.5 h-8"
-                  >
-                    Clear All
-                  </Button>
-                )}
-              </CardHeader>
-
-              <div className="overflow-x-auto">
-                {history.length === 0 ? (
-                  <div className="flex flex-col items-center justify-center py-16 px-6 text-center m-6 border-2 border-dashed border-border rounded-2xl bg-card/40 backdrop-blur-sm animate-in fade-in duration-300">
-                    <div className="h-12 w-12 rounded-2xl bg-primary/10 border border-primary/20 flex items-center justify-center mb-4 shadow-sm animate-pulse">
-                      <History className="w-5.5 h-5.5 text-primary" />
-                    </div>
-                    <h3 className="font-extrabold text-base text-foreground tracking-tight">No Search History</h3>
-                    <p className="text-muted-foreground text-xs max-w-sm mt-2 leading-relaxed">
-                      Your query history is currently empty. Go to the <span className="font-bold text-primary">Prospects</span> tab and scrape local keywords to populate history.
-                    </p>
-                  </div>
-                ) : (
-                  <table className="w-full text-left border-collapse">
-                    <thead>
-                      <tr className="border-b border-border bg-muted/30 text-[10px] uppercase font-bold text-muted-foreground tracking-wider">
-                        <th className="px-6 py-3.5">Query</th>
-                        <th className="px-6 py-3.5">Last Scrape Date</th>
-                        <th className="px-6 py-3.5 text-center">Run Count</th>
-                        <th className="px-6 py-3.5 text-center">Lead Yield</th>
-                        <th className="px-6 py-3.5 text-right">Actions</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-border text-xs">
-                      {history.map((item) => (
-                        <tr key={item.id} className="hover:bg-muted/20 transition-colors">
-                          <td className="px-6 py-4 font-bold text-foreground max-w-xs truncate">
-                            {item.query}
-                          </td>
-                          <td className="px-6 py-4 text-muted-foreground">
-                            {new Date(item.last_run_at).toLocaleString('en-IN', {
-                              dateStyle: 'medium',
-                              timeStyle: 'short',
-                            })}
-                          </td>
-                          <td className="px-6 py-4 text-center font-semibold text-muted-foreground">
-                            {item.run_count}
-                          </td>
-                          <td className="px-6 py-4 text-center">
-                            <Badge variant="secondary" className="bg-emerald-500/10 text-emerald-600 text-[10px] border-emerald-500/20">
-                              {item.last_stored} stored
-                            </Badge>
-                          </td>
-                          <td className="px-6 py-4 text-right space-x-2 whitespace-nowrap">
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              onClick={() => {
-                                setSearchFilter(item.query);
-                                setActiveTab('prospects');
-                                setCurrentPage(1);
-                              }}
-                              className="text-[10px] font-bold h-7 px-2.5"
-                            >
-                              View Prospects
-                            </Button>
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              disabled={isRunningPipeline}
-                              onClick={() => {
-                                setQuery(item.query);
-                                setActiveTab('prospects');
-                                setCurrentPage(1);
-                                setTimeout(() => {
-                                  const form = document.querySelector('form');
-                                  if (form) form.requestSubmit();
-                                }, 0);
-                              }}
-                              className="text-[10px] font-bold h-7 px-2.5 bg-primary/5 hover:bg-primary/10 text-primary border-primary/20"
-                            >
-                              Re-run Scrape
-                            </Button>
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              onClick={(e) => handleDeleteHistoryItem(e, item.id)}
-                              className="text-[10px] font-bold h-7 px-2 hover:bg-destructive/10 hover:text-destructive"
-                            >
-                              Delete
-                            </Button>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                )}
-              </div>
-            </Card>
-          )}
-        </main>
-
-        {/* Integrated Footer */}
-        <footer className="bg-card border-t border-border py-4 text-center text-[10px] text-muted-foreground shrink-0 mt-auto">
-          <div className="max-w-7xl mx-auto px-4">
-            Leads Finder &copy; {new Date().getFullYear()}.
+      {/* Features Grid Section */}
+      <section id="features" className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-16 bg-muted/20 border-t border-border/40 relative">
+        <div className="space-y-12">
+          
+          <div className="text-center space-y-3">
+            <h2 className="text-2xl sm:text-3xl font-black text-foreground tracking-tight">
+              Features Built for Digital Agencies & Freelancers
+            </h2>
+            <p className="text-xs sm:text-sm text-muted-foreground font-medium max-w-xl mx-auto leading-relaxed">
+              Every tool you need to scrape leads, identify site vulnerabilities, structure pitches, and finalize contract redesign projects.
+            </p>
           </div>
-        </footer>
 
-        {/* CRM Lead Notes & Editor — Shadcn Sheet */}
-        <Sheet open={!!selectedCRMLead} onOpenChange={(open) => { if (!open) setSelectedCRMLead(null); }}>
-          <SheetContent side="right" className={`${notesSidebarWide ? 'lg:max-w-2xl' : 'lg:max-w-md'} w-full p-0 flex flex-col h-full transition-all duration-300`}>
-            {/* Drawer Header */}
-            <SheetHeader className="px-6 py-5 border-b border-border shrink-0 bg-muted/20 space-y-1">
-              <div className="flex items-center justify-between">
-                <div className="space-y-1">
-                  <Badge className="text-[10px] uppercase tracking-wider bg-primary/10 text-primary border-primary/20">
-                    Lead CRM Profile
-                  </Badge>
-                  <SheetTitle className="text-base font-bold truncate max-w-[240px] sm:max-w-md">
-                    {selectedCRMLead?.name}
-                  </SheetTitle>
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
+            
+            {/* Feature 1 */}
+            <Card className="border border-border/80 bg-card hover:shadow-xl hover:scale-[1.01] transition-all duration-300">
+              <CardContent className="p-6 space-y-4">
+                <div className="h-10 w-10 rounded-xl bg-primary/10 border border-primary/20 flex items-center justify-center">
+                  <Database className="w-5 h-5 text-primary" />
                 </div>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  onClick={() => setNotesSidebarWide(!notesSidebarWide)}
-                  className="h-11 w-11 hidden sm:flex items-center justify-center"
-                  title={notesSidebarWide ? "Collapse notes panel" : "Expand notes panel"}
-                >
-                  {notesSidebarWide ? <Minimize2 className="w-4 h-4" /> : <Maximize2 className="w-4 h-4" />}
-                </Button>
+                <h3 className="text-sm font-extrabold text-foreground">Automated Local Scraping</h3>
+                <p className="text-xs text-muted-foreground leading-relaxed font-medium">
+                  Query any industry niche and city combination globally. Our engine processes Google Maps profile databases instantly to pull verified leads.
+                </p>
+              </CardContent>
+            </Card>
+
+            {/* Feature 2 */}
+            <Card className="border border-border/80 bg-card hover:shadow-xl hover:scale-[1.01] transition-all duration-300">
+              <CardContent className="p-6 space-y-4">
+                <div className="h-10 w-10 rounded-xl bg-violet-600/10 border border-violet-600/20 flex items-center justify-center">
+                  <Globe className="w-5 h-5 text-violet-500" />
+                </div>
+                <h3 className="text-sm font-extrabold text-foreground">Intelligent Site Auditing</h3>
+                <p className="text-xs text-muted-foreground leading-relaxed font-medium">
+                  Runs background crawlers checking if business domains resolve, flags broken DNS servers, audits SSL safety certificates, and evaluates mobile speeds.
+                </p>
+              </CardContent>
+            </Card>
+
+            {/* Feature 3 */}
+            <Card className="border border-border/80 bg-card hover:shadow-xl hover:scale-[1.01] transition-all duration-300">
+              <CardContent className="p-6 space-y-4">
+                <div className="h-10 w-10 rounded-xl bg-amber-500/10 border border-amber-500/20 flex items-center justify-center">
+                  <Award className="w-5 h-5 text-amber-500" />
+                </div>
+                <h3 className="text-sm font-extrabold text-foreground">Lead Scoring Intelligence</h3>
+                <p className="text-xs text-muted-foreground leading-relaxed font-medium">
+                  Grades opportunities based on total reviews, average ratings, and website deficiencies. Filter immediately for prospects ready to buy.
+                </p>
+              </CardContent>
+            </Card>
+
+            {/* Feature 4 */}
+            <Card className="border border-border/80 bg-card hover:shadow-xl hover:scale-[1.01] transition-all duration-300">
+              <CardContent className="p-6 space-y-4">
+                <div className="h-10 w-10 rounded-xl bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center">
+                  <MessageSquareCode className="w-5 h-5 text-emerald-500" />
+                </div>
+                <h3 className="text-sm font-extrabold text-foreground">Built-in CRM & Outreach</h3>
+                <p className="text-xs text-muted-foreground leading-relaxed font-medium">
+                  Track deal values, plan follow-up notifications, record phone logs, and open context-aware Whatsapp or mail scripts instantly.
+                </p>
+              </CardContent>
+            </Card>
+
+          </div>
+        </div>
+      </section>
+
+      {/* How It Works Timeline Section */}
+      <section id="how-it-works" className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-16 border-t border-border/40 relative">
+        <div className="space-y-12">
+          
+          <div className="text-center space-y-3">
+            <h2 className="text-2xl sm:text-3xl font-black text-foreground tracking-tight">
+              A 3-Step Engine to Land Clients
+            </h2>
+            <p className="text-xs sm:text-sm text-muted-foreground font-medium max-w-xl mx-auto leading-relaxed">
+              Ditch the generic lists. Connect with high-value local prospects whose businesses already generate customer interest, but lack active website pages.
+            </p>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-8 max-w-5xl mx-auto">
+            
+            {/* Step 1 */}
+            <div className="space-y-4 relative">
+              <div className="h-12 w-12 rounded-2xl bg-primary/10 flex items-center justify-center font-black text-sm text-primary shadow-sm border border-primary/20">
+                01
               </div>
-            </SheetHeader>
-            <SheetDescription className="sr-only">Edit lead CRM details, notes, and outreach.</SheetDescription>
-
-            {/* Drawer Scrollable Content */}
-            <div className="flex-1 overflow-y-auto p-6 space-y-6">
-              {/* Contact Information (Enrichment) */}
-              <Card className="bg-muted/30 border-border/50">
-                <CardContent className="p-4 space-y-4">
-                  <span className="text-[10px] font-bold text-foreground uppercase tracking-wider block">
-                    Contact Channels
-                  </span>
-                  
-                  <div className="space-y-1">
-                    <label className="text-[11px] font-bold text-muted-foreground">Phone Number</label>
-                    <Input
-                      type="text"
-                      value={editorPhone}
-                      onChange={(e) => setEditorPhone(e.target.value)}
-                      className="h-11 lg:h-9 text-xs font-semibold"
-                      placeholder="e.g. 9876543210"
-                    />
-                  </div>
-
-                  <div className="space-y-1">
-                    <label className="text-[11px] font-bold text-muted-foreground">Email Address</label>
-                    <Input
-                      type="email"
-                      value={editorEmail}
-                      onChange={(e) => setEditorEmail(e.target.value)}
-                      className="h-11 lg:h-9 text-xs font-semibold"
-                      placeholder="owner@business.com"
-                    />
-                  </div>
-
-                  <div className="space-y-1">
-                    <label className="text-[11px] font-bold text-muted-foreground">Website URL</label>
-                    <Input
-                      type="text"
-                      value={editorWebsite}
-                      onChange={(e) => setEditorWebsite(e.target.value)}
-                      className="h-11 lg:h-9 text-xs font-semibold"
-                      placeholder="www.business.com"
-                    />
-                  </div>
-                </CardContent>
-              </Card>
-
-              {/* Form fields */}
-              <div className="space-y-4">
-                {/* Status Dropdown — Shadcn Select */}
-                <div className="space-y-1.5">
-                  <label className="text-xs font-bold text-foreground">Pipeline Stage</label>
-                  <Select value={editorStatus} onValueChange={(v) => setEditorStatus(v as typeof editorStatus)}>
-                    <SelectTrigger className="h-11 lg:h-10 text-xs font-semibold">
-                      <SelectValue placeholder="Select status" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="no_answer">Attempted / No Answer</SelectItem>
-                      <SelectItem value="contacted">Spoke to Owner</SelectItem>
-                      <SelectItem value="meeting">Meeting Scheduled</SelectItem>
-                      <SelectItem value="won">Closed Won</SelectItem>
-                      <SelectItem value="lost">Closed Lost</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-
-                {/* Deal Value */}
-                <div className="space-y-1.5">
-                  <label className="text-xs font-bold text-foreground">Est. Deal Value ($)</label>
-                  <div className="relative">
-                    <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-xs font-bold text-muted-foreground">$</span>
-                    <Input
-                      type="number"
-                      value={editorValue}
-                      onChange={(e) => setEditorValue(Number(e.target.value) || 0)}
-                      className="h-11 lg:h-10 text-xs font-bold pl-7"
-                      placeholder="0"
-                    />
-                  </div>
-                </div>
-
-                {/* Follow-up Date */}
-                <div className="space-y-1.5">
-                  <label className="text-xs font-bold text-foreground">Next Follow-up Date</label>
-                  <Input
-                    type="date"
-                    value={editorFollowUp}
-                    onChange={(e) => setEditorFollowUp(e.target.value)}
-                    className="h-11 lg:h-10 text-xs font-semibold"
-                  />
-                </div>
-
-                {/* CRM Notes */}
-                <div className="space-y-1.5">
-                  <label className="text-xs font-bold text-foreground flex items-center gap-1">
-                    <Notebook className="w-3.5 h-3.5 text-muted-foreground" /> CRM Conversation Logs & Notes
-                  </label>
-                  <textarea
-                    value={editorNotes}
-                    onChange={(e) => setEditorNotes(e.target.value)}
-                    rows={5}
-                    className="w-full text-xs font-medium bg-background border border-input rounded-md p-3 focus:outline-none focus-visible:ring-2 focus-visible:ring-ring leading-relaxed"
-                    placeholder="Record call responses, specific requests, custom quote breakdowns..."
-                  />
-                </div>
-
-                {/* OUTREACH CHANNELS PREVIEW & EXECUTION */}
-                <div className="space-y-4 pt-4 border-t border-border">
-                  <span className="text-[10px] font-bold text-foreground uppercase tracking-wider block">
-                    Outreach Assistant
-                  </span>
-
-                  {/* Template Selector — Shadcn Select */}
-                  <Card className="bg-muted/30 border-border/50">
-                    <CardContent className="p-3 space-y-1.5">
-                      <label className="text-[11px] font-bold text-muted-foreground uppercase tracking-wider block">
-                        Pitch Strategy Template
-                      </label>
-                      <Select value={selectedTemplateKey} onValueChange={handleTemplateChange}>
-                        <SelectTrigger className="h-11 lg:h-8 text-xs font-semibold">
-                          <SelectValue placeholder="Select template" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="no_site">No Active Website Pitch</SelectItem>
-                          <SelectItem value="broken_site">Broken / Offline Website Pitch</SelectItem>
-                          <SelectItem value="weak_site">Modern Redesign Upgrade Pitch</SelectItem>
-                        </SelectContent>
-                      </Select>
-                    </CardContent>
-                  </Card>
-
-                  {/* WhatsApp Template editor and Send/Copy Buttons */}
-                  <Card className="bg-emerald-500/5 border-emerald-500/10">
-                    <CardContent className="p-3.5 space-y-2">
-                      <label className="text-[11px] font-bold text-emerald-600 dark:text-emerald-400 flex items-center gap-1">
-                        <MessageCircle className="w-3.5 h-3.5" /> WhatsApp Message Pitch
-                      </label>
-                      <textarea
-                        value={editorWAPitch}
-                        onChange={(e) => setEditorWAPitch(e.target.value)}
-                        rows={3}
-                        className="w-full text-[11px] font-medium bg-background border border-input rounded-md p-2 focus:outline-none focus-visible:ring-2 focus-visible:ring-ring leading-normal"
-                      />
-                      <div className="flex gap-2">
-                        <Button
-                          type="button"
-                          onClick={() => {
-                            const cleanPhone = editorPhone ? editorPhone.replace(/\D/g, '') : '';
-                            if (!cleanPhone) {
-                              alert('Please enter a phone number first to trigger WhatsApp outreach.');
-                              return;
-                            }
-                            const url = `https://wa.me/91${cleanPhone}?text=${encodeURIComponent(editorWAPitch)}`;
-                            window.open(url, '_blank');
-                          }}
-                          className="flex-1 h-11 lg:h-9 text-[11px] font-bold bg-emerald-600 hover:bg-emerald-700 text-white"
-                        >
-                          <MessageCircle className="w-3.5 h-3.5 mr-1.5" /> Send WhatsApp
-                        </Button>
-                        <Button
-                          type="button"
-                          variant="outline"
-                          onClick={() => {
-                            navigator.clipboard.writeText(editorWAPitch);
-                            setCopiedWA(true);
-                            setTimeout(() => setCopiedWA(false), 2000);
-                          }}
-                          className="h-11 lg:h-9 px-4 text-[11px] font-bold border-emerald-600/20 text-emerald-600 hover:bg-emerald-600/5"
-                        >
-                          <Copy className="w-3.5 h-3.5 mr-1" />
-                          {copiedWA ? 'Copied' : 'Copy'}
-                        </Button>
-                      </div>
-                    </CardContent>
-                  </Card>
-
-                  {/* Email Template editor and Send/Copy Buttons */}
-                  <Card className="bg-rose-500/5 border-rose-500/10">
-                    <CardContent className="p-3.5 space-y-2">
-                      <label className="text-[11px] font-bold text-rose-500 flex items-center gap-1">
-                        <Mail className="w-3.5 h-3.5" /> Email Pitch Customizer
-                      </label>
-                      <Input
-                        type="text"
-                        value={editorEmailSubject}
-                        onChange={(e) => setEditorEmailSubject(e.target.value)}
-                        className="h-11 lg:h-8 text-[11px] font-bold"
-                        placeholder="Email Subject"
-                      />
-                      <textarea
-                        value={editorEmailBody}
-                        onChange={(e) => setEditorEmailBody(e.target.value)}
-                        rows={4}
-                        className="w-full text-[11px] font-medium bg-background border border-input rounded-md p-2 focus:outline-none focus-visible:ring-2 focus-visible:ring-ring leading-normal"
-                      />
-                      <div className="flex gap-2">
-                        <Button
-                          type="button"
-                          onClick={() => {
-                            const url = `mailto:${editorEmail}?subject=${encodeURIComponent(editorEmailSubject)}&body=${encodeURIComponent(editorEmailBody)}`;
-                            window.open(url);
-                          }}
-                          className="flex-1 h-11 lg:h-9 text-[11px] font-bold bg-rose-500 hover:bg-rose-600 text-white"
-                        >
-                          <Mail className="w-3.5 h-3.5 mr-1.5" /> Send Email
-                        </Button>
-                        <Button
-                          type="button"
-                          variant="outline"
-                          onClick={() => {
-                            const fullEmailText = `Subject: ${editorEmailSubject}\n\n${editorEmailBody}`;
-                            navigator.clipboard.writeText(fullEmailText);
-                            setCopiedEmail(true);
-                            setTimeout(() => setCopiedEmail(false), 2000);
-                          }}
-                          className="h-11 lg:h-9 px-4 text-[11px] font-bold border-rose-500/20 text-rose-500 hover:bg-rose-500/5"
-                        >
-                          <Copy className="w-3.5 h-3.5 mr-1" />
-                          {copiedEmail ? 'Copied' : 'Copy'}
-                        </Button>
-                      </div>
-                    </CardContent>
-                  </Card>
-                </div>
-              </div>
+              <h3 className="text-sm font-black text-foreground">Scrape and Crawl</h3>
+              <p className="text-xs text-muted-foreground font-medium leading-relaxed">
+                Enter any location and commercial niche (e.g. dentists in Chicago). Background workers pull business listings and audit their live site domains automatically.
+              </p>
             </div>
 
-            {/* Drawer Footer Actions */}
-            <SheetFooter className="p-4 pb-safe-padded border-t border-border shrink-0 bg-muted/10 grid grid-cols-2 gap-3 sm:space-x-0">
-              <Button 
-                variant="outline" 
-                onClick={() => setSelectedCRMLead(null)}
-                className="text-xs font-semibold h-11 lg:h-10 w-full"
-              >
-                Cancel
-              </Button>
-              <Button 
-                onClick={handleSaveEditorChanges}
-                className="text-xs font-bold h-11 lg:h-10 w-full"
-              >
-                Save Changes
-              </Button>
-            </SheetFooter>
-          </SheetContent>
-        </Sheet>
+            {/* Step 2 */}
+            <div className="space-y-4 relative">
+              <div className="h-12 w-12 rounded-2xl bg-violet-600/10 flex items-center justify-center font-black text-sm text-violet-500 shadow-sm border border-violet-600/20">
+                02
+              </div>
+              <h3 className="text-sm font-black text-foreground">Select and Customize Pitch</h3>
+              <p className="text-xs text-muted-foreground font-medium leading-relaxed">
+                Select high opportunity leads. Review pre-engineered WhatsApp/Email pitches highlighting the precise problem found (e.g. DNS timeout, broken SSL, or no domain link).
+              </p>
+            </div>
 
-        {/* Confirmation Dialog */}
-        <Dialog open={confirmDialogOpen} onOpenChange={setConfirmDialogOpen}>
-          <DialogContent className="sm:max-w-md">
-            <DialogHeader>
-              <DialogTitle>{confirmDialogTitle}</DialogTitle>
-              <DialogDescription>{confirmDialogDesc}</DialogDescription>
-            </DialogHeader>
-            <DialogFooter className="gap-2 sm:gap-0">
-              <Button variant="outline" onClick={() => setConfirmDialogOpen(false)}>
-                Cancel
-              </Button>
-              <Button 
-                variant="destructive" 
-                onClick={() => { if (confirmDialogAction) confirmDialogAction(); }}
+            {/* Step 3 */}
+            <div className="space-y-4 relative">
+              <div className="h-12 w-12 rounded-2xl bg-emerald-500/10 flex items-center justify-center font-black text-sm text-emerald-500 shadow-sm border border-emerald-500/20">
+                03
+              </div>
+              <h3 className="text-sm font-black text-foreground">Outreach & Close CRM Deals</h3>
+              <p className="text-xs text-muted-foreground font-medium leading-relaxed">
+                Contact owners directly using one-click messaging integrations. Record progress, log follow-up calendars, assign target contract deal values, and monitor won sales.
+              </p>
+            </div>
+
+          </div>
+        </div>
+      </section>
+
+      {/* Pricing Calculator Tiers */}
+      <section id="pricing" className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-16 bg-muted/20 border-t border-border/40 relative">
+        <div className="space-y-12">
+          
+          <div className="text-center space-y-4">
+            <h2 className="text-2xl sm:text-3xl font-black text-foreground tracking-tight">
+              Flexible Plans Built for Growth
+            </h2>
+            <p className="text-xs sm:text-sm text-muted-foreground font-medium max-w-xl mx-auto leading-relaxed">
+              Find clients at your own pace. Switch pricing modes to fit your solo consultancy or full agency outreach needs.
+            </p>
+
+            {/* Billing period toggle */}
+            <div className="inline-flex items-center p-1 rounded-xl bg-card border border-border/80">
+              <button
+                onClick={() => setBillingPeriod('monthly')}
+                className={`px-4 py-2 rounded-lg text-[10px] sm:text-xs font-bold transition-all ${
+                  billingPeriod === 'monthly'
+                    ? 'bg-primary text-white shadow'
+                    : 'text-muted-foreground hover:text-foreground'
+                }`}
               >
-                Confirm
-              </Button>
-            </DialogFooter>
-          </DialogContent>
-        </Dialog>
-      </div>
+                Monthly Billing
+              </button>
+              <button
+                onClick={() => setBillingPeriod('annual')}
+                className={`px-4 py-2 rounded-lg text-[10px] sm:text-xs font-bold flex items-center gap-1.5 transition-all ${
+                  billingPeriod === 'annual'
+                    ? 'bg-primary text-white shadow'
+                    : 'text-muted-foreground hover:text-foreground'
+                }`}
+              >
+                Annual Save 20%
+                <Badge className="bg-emerald-500 text-[8px] h-4 font-bold px-1 select-none text-white border-none">
+                  Promo
+                </Badge>
+              </button>
+            </div>
+          </div>
+
+          {/* 3 Pricing cards */}
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-8 max-w-5xl mx-auto">
+            
+            {/* Plan 1 */}
+            <Card className="border border-border/80 bg-card/60 backdrop-blur-md rounded-2xl flex flex-col justify-between hover:shadow-xl transition-all duration-300">
+              <div className="p-6 sm:p-8 space-y-5">
+                <div>
+                  <h3 className="text-base font-extrabold text-foreground">Starter Prospector</h3>
+                  <p className="text-xs text-muted-foreground mt-1">Perfect for part-time freelancers.</p>
+                </div>
+                <div className="flex items-baseline">
+                  <span className="text-3xl font-black text-foreground">${billingPeriod === 'monthly' ? '29' : '23'}</span>
+                  <span className="text-xs text-muted-foreground font-medium ml-1">/ month</span>
+                </div>
+                <ul className="space-y-2.5 text-xs text-muted-foreground font-medium border-t border-border/50 pt-5">
+                  <li className="flex items-center gap-2">
+                    <CheckCircle2 className="w-3.5 h-3.5 text-primary shrink-0" />
+                    <span>15 Local Market Scans / mo</span>
+                  </li>
+                  <li className="flex items-center gap-2">
+                    <CheckCircle2 className="w-3.5 h-3.5 text-primary shrink-0" />
+                    <span>Up to 150 Prospect Leads / mo</span>
+                  </li>
+                  <li className="flex items-center gap-2">
+                    <CheckCircle2 className="w-3.5 h-3.5 text-primary shrink-0" />
+                    <span>Automatic Web Domain Audits</span>
+                  </li>
+                  <li className="flex items-center gap-2">
+                    <CheckCircle2 className="w-3.5 h-3.5 text-primary shrink-0" />
+                    <span>Standard WhatsApp Pitch Templates</span>
+                  </li>
+                </ul>
+              </div>
+              <div className="p-6 bg-muted/20 border-t border-border/50">
+                <Link href="/dashboard">
+                  <Button variant="outline" className="w-full text-xs font-bold h-10 border-border hover:bg-muted/40">
+                    Get Started Free
+                  </Button>
+                </Link>
+              </div>
+            </Card>
+
+            {/* Plan 2 - Recommended */}
+            <Card className="border-2 border-primary bg-card rounded-2xl flex flex-col justify-between shadow-2xl relative hover:scale-[1.01] transition-all duration-300">
+              <div className="absolute top-0 right-6 -translate-y-1/2">
+                <Badge className="bg-primary text-white text-[9px] font-bold uppercase tracking-wider border-none px-2.5 py-0.5">
+                  Most Popular
+                </Badge>
+              </div>
+              <div className="p-6 sm:p-8 space-y-5">
+                <div>
+                  <h3 className="text-base font-extrabold text-foreground flex items-center gap-1.5">
+                    Agency Professional <Sparkles className="w-4 h-4 text-primary animate-pulse" />
+                  </h3>
+                  <p className="text-xs text-muted-foreground mt-1">For active outreach agencies.</p>
+                </div>
+                <div className="flex items-baseline">
+                  <span className="text-3xl font-black text-foreground">${billingPeriod === 'monthly' ? '79' : '63'}</span>
+                  <span className="text-xs text-muted-foreground font-medium ml-1">/ month</span>
+                </div>
+                <ul className="space-y-2.5 text-xs text-muted-foreground font-medium border-t border-border/50 pt-5">
+                  <li className="flex items-center gap-2">
+                    <CheckCircle2 className="w-3.5 h-3.5 text-primary shrink-0" />
+                    <span className="text-foreground">75 Local Market Scans / mo</span>
+                  </li>
+                  <li className="flex items-center gap-2">
+                    <CheckCircle2 className="w-3.5 h-3.5 text-primary shrink-0" />
+                    <span className="text-foreground">Unlimited Prospect Database Logs</span>
+                  </li>
+                  <li className="flex items-center gap-2">
+                    <CheckCircle2 className="w-3.5 h-3.5 text-primary shrink-0" />
+                    <span>Lead Scoring Grade Analytics</span>
+                  </li>
+                  <li className="flex items-center gap-2">
+                    <CheckCircle2 className="w-3.5 h-3.5 text-primary shrink-0" />
+                    <span>WhatsApp + Email Strategy Copier</span>
+                  </li>
+                  <li className="flex items-center gap-2">
+                    <CheckCircle2 className="w-3.5 h-3.5 text-primary shrink-0" />
+                    <span>Priority background crawler threads</span>
+                  </li>
+                </ul>
+              </div>
+              <div className="p-6 bg-muted/20 border-t border-border/50">
+                <Link href="/dashboard">
+                  <Button className="w-full text-xs font-bold h-10 shadow-lg shadow-primary/10">
+                    Get Started Free
+                  </Button>
+                </Link>
+              </div>
+            </Card>
+
+            {/* Plan 3 */}
+            <Card className="border border-border/80 bg-card/60 backdrop-blur-md rounded-2xl flex flex-col justify-between hover:shadow-xl transition-all duration-300">
+              <div className="p-6 sm:p-8 space-y-5">
+                <div>
+                  <h3 className="text-base font-extrabold text-foreground">Unlimited Enterprise</h3>
+                  <p className="text-xs text-muted-foreground mt-1">For serious consulting teams.</p>
+                </div>
+                <div className="flex items-baseline">
+                  <span className="text-3xl font-black text-foreground">${billingPeriod === 'monthly' ? '149' : '119'}</span>
+                  <span className="text-xs text-muted-foreground font-medium ml-1">/ month</span>
+                </div>
+                <ul className="space-y-2.5 text-xs text-muted-foreground font-medium border-t border-border/50 pt-5">
+                  <li className="flex items-center gap-2">
+                    <CheckCircle2 className="w-3.5 h-3.5 text-primary shrink-0" />
+                    <span>Unlimited Market Scans</span>
+                  </li>
+                  <li className="flex items-center gap-2">
+                    <CheckCircle2 className="w-3.5 h-3.5 text-primary shrink-0" />
+                    <span>Unlimited Pipeline Leads</span>
+                  </li>
+                  <li className="flex items-center gap-2">
+                    <CheckCircle2 className="w-3.5 h-3.5 text-primary shrink-0" />
+                    <span>Multi-Threaded Headless Audit Servers</span>
+                  </li>
+                  <li className="flex items-center gap-2">
+                    <CheckCircle2 className="w-3.5 h-3.5 text-primary shrink-0" />
+                    <span>Custom Outreach Pitch Templates Creator</span>
+                  </li>
+                  <li className="flex items-center gap-2">
+                    <CheckCircle2 className="w-3.5 h-3.5 text-primary shrink-0" />
+                    <span>Direct CRM Integrations</span>
+                  </li>
+                </ul>
+              </div>
+              <div className="p-6 bg-muted/20 border-t border-border/50">
+                <Link href="/dashboard">
+                  <Button variant="outline" className="w-full text-xs font-bold h-10 border-border hover:bg-muted/40">
+                    Contact Enterprise
+                  </Button>
+                </Link>
+              </div>
+            </Card>
+
+          </div>
+        </div>
+      </section>
+
+      {/* Accordion FAQ Section */}
+      <section id="faqs" className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-16 border-t border-border/40 relative">
+        <div className="max-w-4xl mx-auto space-y-12">
+          
+          <div className="text-center space-y-3">
+            <h2 className="text-2xl sm:text-3xl font-black text-foreground tracking-tight flex items-center justify-center gap-2">
+              <HelpCircle className="w-6 h-6 text-primary" /> Frequently Asked Questions
+            </h2>
+            <p className="text-xs sm:text-sm text-muted-foreground font-medium max-w-xl mx-auto leading-relaxed">
+              Got questions about web verification checks or CRM setups? Find immediate answers right here.
+            </p>
+          </div>
+
+          <div className="space-y-4">
+            {faqs.map((faq, idx) => {
+              const isOpen = expandedFaq === idx;
+              return (
+                <div
+                  key={idx}
+                  className="border border-border/80 rounded-xl bg-card/40 backdrop-blur-sm overflow-hidden"
+                >
+                  <button
+                    onClick={() => setExpandedFaq(isOpen ? null : idx)}
+                    className="w-full px-5 py-4 flex items-center justify-between text-left focus:outline-none hover:bg-muted/30 transition-all"
+                  >
+                    <span className="text-xs sm:text-sm font-extrabold text-foreground pr-4">
+                      {faq.q}
+                    </span>
+                    {isOpen ? (
+                      <ChevronUp className="w-4 h-4 text-muted-foreground shrink-0" />
+                    ) : (
+                      <ChevronDown className="w-4 h-4 text-muted-foreground shrink-0" />
+                    )}
+                  </button>
+                  {isOpen && (
+                    <div className="px-5 pb-4 text-xs text-muted-foreground leading-relaxed font-medium border-t border-border/40 pt-3 animate-in slide-in-from-top-1 duration-200">
+                      {faq.a}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      </section>
+
+      {/* Hero CTA Card Banner */}
+      <section className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
+        <div className="bg-gradient-to-r from-primary to-indigo-600 rounded-3xl p-8 sm:p-12 text-center relative overflow-hidden shadow-2xl">
+          
+          {/* Decorative design layers */}
+          <div className="absolute inset-0 bg-[linear-gradient(to_right,#ffffff05_1px,transparent_1px),linear-gradient(to_bottom,#ffffff05_1px,transparent_1px)] bg-[size:20px_20px]" />
+          <div className="absolute top-[-30%] right-[-10%] w-[350px] h-[350px] rounded-full bg-white/5 blur-[50px]" />
+          
+          <div className="max-w-3xl mx-auto space-y-6 relative z-10">
+            <h2 className="text-2xl sm:text-4xl font-black text-white tracking-tight">
+              Ready to land your next high-ticket client?
+            </h2>
+            <p className="text-xs sm:text-sm text-white/80 font-medium max-w-xl mx-auto leading-relaxed">
+              Join dozens of solo web designers and developers using Leads Finder to identify offline platforms, pitch solutions in seconds, and close deals effortlessly.
+            </p>
+            <div className="pt-2">
+              <Link href="/dashboard">
+                <Button size="lg" className="bg-white text-primary hover:bg-white/95 h-12 px-8 text-sm font-bold shadow-xl hover:scale-[1.02] active:scale-[0.98] transition-all">
+                  Launch Scraping Tool Now
+                </Button>
+              </Link>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* Styled Footer */}
+      <footer className="border-t border-border/60 bg-muted/20 py-10 relative">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 text-center space-y-6">
+          <Link href="/" className="inline-flex items-center gap-2 justify-center hover:opacity-95 transition-all">
+            <Image src="/logo.png" alt="Leads Finder Logo" width={28} height={28} className="w-7 h-7 rounded-lg object-contain border border-border/50" />
+            <span className="text-sm font-extrabold tracking-tight text-foreground">
+              Leads Finder
+            </span>
+          </Link>
+          <p className="text-[10px] text-muted-foreground font-medium max-w-md mx-auto leading-relaxed">
+            The hyper-focused cold outreach system for digital agencies, SEO experts, and web builders. Easily identify offline, broken, or unconfigured pages.
+          </p>
+          <div className="text-[10px] text-muted-foreground/60 border-t border-border/40 pt-6 font-semibold">
+            Leads Finder &copy; {new Date().getFullYear()}. All rights reserved. Created in partnership with Antigravity AI.
+          </div>
+        </div>
+      </footer>
+
     </div>
+  );
+}
+
+// Simple internal Button Component to avoid conflicts or additional dependencies
+function Button({ children, className = '', variant = 'default', size = 'default', type = 'button', ...props }: any) {
+  let baseStyles = 'inline-flex items-center justify-center rounded-xl font-bold transition-all focus:outline-none disabled:opacity-50 disabled:pointer-events-none';
+  
+  let variantStyles = 'bg-primary text-primary-foreground hover:bg-primary/95 hover:shadow-primary/5 active:scale-[0.98]';
+  if (variant === 'outline') {
+    variantStyles = 'border border-input bg-background hover:bg-accent hover:text-accent-foreground active:scale-[0.98]';
+  } else if (variant === 'ghost') {
+    variantStyles = 'hover:bg-accent hover:text-accent-foreground';
+  } else if (variant === 'secondary') {
+    variantStyles = 'bg-secondary text-secondary-foreground hover:bg-secondary/80';
+  }
+  
+  let sizeStyles = 'h-10 px-4 py-2 text-sm';
+  if (size === 'sm') {
+    sizeStyles = 'h-9 px-3 text-xs';
+  } else if (size === 'lg') {
+    sizeStyles = 'h-12 px-8 text-sm';
+  } else if (size === 'icon') {
+    sizeStyles = 'h-10 w-10';
+  }
+  
+  return (
+    <button
+      type={type}
+      className={`${baseStyles} ${variantStyles} ${sizeStyles} ${className}`}
+      {...props}
+    >
+      {children}
+    </button>
   );
 }
