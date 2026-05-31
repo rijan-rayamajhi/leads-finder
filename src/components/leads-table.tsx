@@ -15,7 +15,6 @@ import {
   Phone, 
   Check, 
   Search, 
-  BadgeInfo, 
   ChevronLeft,
   ChevronRight,
   ChevronsLeft,
@@ -25,11 +24,9 @@ import {
   MapPin,
   ExternalLink,
   ChevronDown,
-  ChevronUp,
-  CheckCircle2,
-  XCircle,
-  AlertCircle
+  ChevronUp
 } from 'lucide-react';
+import { AuditChecklist, parseLeadReason, getTierBadge } from '@/components/audit-checklist';
 
 type LeadsTableProps = {
   leads: Lead[];
@@ -42,38 +39,6 @@ type LeadsTableProps = {
   onPageChange: (page: number) => void;
   onPageSizeChange: (size: number) => void;
 };
-
-interface LeadReasonMetadata {
-  text: string;
-  address: string | null;
-  rating: number | null;
-  reviews: number | null;
-  maps_url: string | null;
-}
-
-function parseLeadReason(rawReason: string): LeadReasonMetadata {
-  try {
-    if (rawReason && rawReason.startsWith('{')) {
-      const parsed = JSON.parse(rawReason);
-      return {
-        text: parsed.text || '',
-        address: parsed.address || null,
-        rating: parsed.rating != null ? Number(parsed.rating) : null,
-        reviews: parsed.reviews != null ? Number(parsed.reviews) : null,
-        maps_url: parsed.maps_url || null,
-      };
-    }
-  } catch (err) {
-    console.error('Failed to parse lead reason JSON:', err);
-  }
-  return {
-    text: rawReason || '',
-    address: null,
-    rating: null,
-    reviews: null,
-    maps_url: null,
-  };
-}
 
 function ScoreBadge({ score }: { score: number }) {
   const color =
@@ -91,164 +56,6 @@ function ScoreBadge({ score }: { score: number }) {
       <span className="w-1.5 h-1.5 rounded-full bg-current animate-pulse" />
       {score}
     </Badge>
-  );
-}
-
-function AuditChecklist({ reasonText, score }: { reasonText: string; score: number }) {
-  const pitchIndex = reasonText.indexOf('Suggested Pitch:');
-  const suggestedPitch = pitchIndex !== -1 ? reasonText.substring(pitchIndex + 'Suggested Pitch:'.length).trim() : null;
-
-  const cleanReasonText = pitchIndex !== -1 ? reasonText.substring(0, pitchIndex) : reasonText;
-  const cleanNormalized = cleanReasonText.toLowerCase();
-  
-  // 1. Website Status check
-  let websiteStatus: 'none' | 'broken' | 'ok' = 'ok';
-  let websiteLabel = 'Website Active';
-  let websitePoints = 0;
-  
-  if (cleanNormalized.includes('no website')) {
-    websiteStatus = 'none';
-    websiteLabel = 'No Website';
-    websitePoints = 60;
-  } else if (cleanNormalized.includes('broken website')) {
-    websiteStatus = 'broken';
-    websiteLabel = 'Broken / Offline Website';
-    websitePoints = 40;
-  }
-
-  // 2. Contact Form check
-  const hasNoContactForm = cleanNormalized.includes('no contact form');
-  
-  // 3. Email check
-  const hasNoEmail = cleanNormalized.includes('no email');
-  
-  // 4. Content check
-  const hasWeakContent = cleanNormalized.includes('weak content');
-
-  return (
-    <div className="space-y-3.5">
-      <div className="flex items-center justify-between border-b border-border pb-2">
-        <h4 className="text-xs font-bold text-foreground uppercase tracking-wider flex items-center gap-1.5">
-          <BadgeInfo className="w-4 h-4 text-primary" /> Audit Opportunity Report
-        </h4>
-        <Badge variant="secondary" className="text-[10px] font-bold">
-          Total Score: {score}/100
-        </Badge>
-      </div>
-
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
-        {/* Web Presence Card */}
-        <Card className={`${
-          websiteStatus === 'none' 
-            ? 'bg-rose-500/5 border-rose-500/20' 
-            : websiteStatus === 'broken'
-            ? 'bg-amber-500/5 border-amber-500/20'
-            : 'bg-emerald-500/5 border-emerald-500/20'
-        }`}>
-          <CardContent className="p-3 flex flex-col justify-between h-20 text-xs">
-            <div className="flex justify-between items-start">
-              <span className="font-bold uppercase text-[9px] tracking-wider text-muted-foreground">Web Domain</span>
-              <span className="font-extrabold text-[10px]">
-                {websitePoints > 0 ? `+${websitePoints} pts` : '0 pts'}
-              </span>
-            </div>
-            <div className="flex items-center gap-1.5 mt-1 font-semibold">
-              {websiteStatus !== 'ok' ? (
-                <XCircle className="w-4 h-4 text-rose-500 shrink-0" />
-              ) : (
-                <CheckCircle2 className="w-4 h-4 text-emerald-500 shrink-0" />
-              )}
-              <span className="text-foreground truncate">{websiteLabel}</span>
-            </div>
-          </CardContent>
-        </Card>
-
-        {/* Contact Form Card */}
-        <Card className={`${
-          hasNoContactForm 
-            ? 'bg-rose-500/5 border-rose-500/20' 
-            : 'bg-emerald-500/5 border-emerald-500/20'
-        }`}>
-          <CardContent className="p-3 flex flex-col justify-between h-20 text-xs">
-            <div className="flex justify-between items-start">
-              <span className="font-bold uppercase text-[9px] tracking-wider text-muted-foreground">Contact Form</span>
-              <span className="font-extrabold text-[10px]">
-                {hasNoContactForm ? '+15 pts' : '0 pts'}
-              </span>
-            </div>
-            <div className="flex items-center gap-1.5 mt-1 font-semibold">
-              {hasNoContactForm ? (
-                <XCircle className="w-4 h-4 text-rose-500 shrink-0" />
-              ) : (
-                <CheckCircle2 className="w-4 h-4 text-emerald-500 shrink-0" />
-              )}
-              <span className="text-foreground truncate">{hasNoContactForm ? 'No Form Detected' : 'Form Detected'}</span>
-            </div>
-          </CardContent>
-        </Card>
-
-        {/* Email Capture Card */}
-        <Card className={`${
-          hasNoEmail 
-            ? 'bg-rose-500/5 border-rose-500/20' 
-            : 'bg-emerald-500/5 border-emerald-500/20'
-        }`}>
-          <CardContent className="p-3 flex flex-col justify-between h-20 text-xs">
-            <div className="flex justify-between items-start">
-              <span className="font-bold uppercase text-[9px] tracking-wider text-muted-foreground">Email Capture</span>
-              <span className="font-extrabold text-[10px]">
-                {hasNoEmail ? '+10 pts' : '0 pts'}
-              </span>
-            </div>
-            <div className="flex items-center gap-1.5 mt-1 font-semibold">
-              {hasNoEmail ? (
-                <XCircle className="w-4 h-4 text-rose-500 shrink-0" />
-              ) : (
-                <CheckCircle2 className="w-4 h-4 text-emerald-500 shrink-0" />
-              )}
-              <span className="text-foreground truncate">{hasNoEmail ? 'No Public Email' : 'Email Active'}</span>
-            </div>
-          </CardContent>
-        </Card>
-
-        {/* Content Quality Card */}
-        <Card className={`${
-          hasWeakContent 
-            ? 'bg-rose-500/5 border-rose-500/20' 
-            : 'bg-emerald-500/5 border-emerald-500/20'
-        }`}>
-          <CardContent className="p-3 flex flex-col justify-between h-20 text-xs">
-            <div className="flex justify-between items-start">
-              <span className="font-bold uppercase text-[9px] tracking-wider text-muted-foreground">Content Quality</span>
-              <span className="font-extrabold text-[10px]">
-                {hasWeakContent ? '+10 pts' : '0 pts'}
-              </span>
-            </div>
-            <div className="flex items-center gap-1.5 mt-1 font-semibold">
-              {hasWeakContent ? (
-                <AlertCircle className="w-4 h-4 text-rose-500 shrink-0" />
-              ) : (
-                <CheckCircle2 className="w-4 h-4 text-emerald-500 shrink-0" />
-              )}
-              <span className="text-foreground truncate">{hasWeakContent ? 'Thin Website Content' : 'Rich Content Quality'}</span>
-            </div>
-          </CardContent>
-        </Card>
-      </div>
-
-      {suggestedPitch && (
-        <Card className="bg-primary/5 border-primary/20 mt-3 animate-in fade-in slide-in-from-top-1 duration-300">
-          <CardContent className="p-3.5 space-y-1.5">
-            <span className="font-extrabold uppercase text-[9px] tracking-wider text-primary flex items-center gap-1">
-              ✨ Suggested Outreach Pitch
-            </span>
-            <p className="text-xs text-foreground font-medium italic leading-relaxed">
-              &quot;{suggestedPitch}&quot;
-            </p>
-          </CardContent>
-        </Card>
-      )}
-    </div>
   );
 }
 
@@ -391,12 +198,17 @@ export function LeadsTable({
               }`}
             >
               {/* Mobile Card Serial Number Tag */}
-              <div className="absolute top-0 left-0 bg-muted px-2.5 py-0.5 rounded-br-lg text-[9px] font-bold text-muted-foreground border-r border-b border-border">
-                #{(currentPage - 1) * pageSize + index + 1}
+              <div className="absolute top-0 left-0 bg-muted px-2.5 py-0.5 rounded-br-lg text-[9px] font-bold text-muted-foreground border-r border-b border-border flex items-center gap-1.5">
+                <span>#{(currentPage - 1) * pageSize + index + 1}</span>
+                {lead.created_at && (
+                  <span className="text-[8px] font-medium text-muted-foreground/80 border-l border-border/60 pl-1.5">
+                    {new Date(lead.created_at).toLocaleString('en-IN', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })}
+                  </span>
+                )}
               </div>
 
               <CardContent className="p-5 space-y-4 pt-6">
-                {/* Header: Title, rating, and score */}
+                {/* Header: Title, rating, and score with Phase A1 tier badge */}
                 <div className="flex justify-between items-start gap-2 pt-2">
                   <div className="space-y-1 max-w-[70%]">
                     <h3 className="font-bold text-base text-foreground leading-tight">
@@ -409,7 +221,18 @@ export function LeadsTable({
                       </div>
                     )}
                   </div>
-                  <ScoreBadge score={lead.score} />
+                  {/* Phase A1 Score & Tier Badge */}
+                  <div className="flex flex-col items-end gap-1 shrink-0">
+                    <ScoreBadge score={lead.score} />
+                    {(() => {
+                      const badge = getTierBadge(lead.tier ?? lead.problems?.tier);
+                      return (
+                        <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full border ${badge.color}`}>
+                          {badge.label}
+                        </span>
+                      );
+                    })()}
+                  </div>
                 </div>
 
                 <div className="space-y-2.5 text-sm pt-2.5 border-t border-border/50">
@@ -470,7 +293,15 @@ export function LeadsTable({
 
                 {isExpanded && (
                   <div className="space-y-4 pt-3 border-t border-border/50 animate-in slide-in-from-top-2 duration-200">
-                    <AuditChecklist reasonText={meta.text} score={lead.score} />
+                    <AuditChecklist 
+                      lead={lead}
+                      reasonText={meta.text} 
+                      score={lead.score} 
+                      revenueScore={lead.revenue_score}
+                      contactScore={lead.contact_score}
+                      intentNorm={lead.problems?.intentNorm ?? lead.intent_score ?? 0}
+                      digitalGapNorm={lead.problems?.digitalGapNorm ?? lead.digital_gap_score ?? 0}
+                    />
 
                     {/* Physical Address */}
                     {meta.address && (
@@ -515,19 +346,20 @@ export function LeadsTable({
       </div>
 
       {/* Desktop Table View */}
-      <div className="hidden lg:block w-full">
-        <Table>
+      <div className="hidden lg:block w-full overflow-x-auto border-t border-border/60">
+        <Table className="min-w-[1250px] w-full table-fixed">
           <TableHeader>
             <TableRow>
-              <TableHead className="w-10 pl-4"></TableHead>
+              <TableHead className="w-12 pl-4"></TableHead>
               <TableHead className="w-14 font-semibold text-xs uppercase tracking-wider text-muted-foreground">S.N.</TableHead>
-              <TableHead className="font-semibold text-xs uppercase tracking-wider text-muted-foreground">Business Details</TableHead>
-              <TableHead className="font-semibold text-xs uppercase tracking-wider text-muted-foreground">Contact Details</TableHead>
+              <TableHead className="font-semibold text-xs uppercase tracking-wider text-muted-foreground w-[260px]">Business Details</TableHead>
+              <TableHead className="font-semibold text-xs uppercase tracking-wider text-muted-foreground w-44">Contact Details</TableHead>
               <TableHead className="font-semibold text-xs uppercase tracking-wider text-muted-foreground text-center w-28">Maps Profile</TableHead>
               <TableHead className="font-semibold text-xs uppercase tracking-wider text-muted-foreground w-28">Score</TableHead>
-              <TableHead className="font-semibold text-xs uppercase tracking-wider text-muted-foreground max-w-[200px]">Audit Reason</TableHead>
-              <TableHead className="font-semibold text-xs uppercase tracking-wider text-muted-foreground">Source</TableHead>
-              <TableHead className="text-right font-semibold text-xs uppercase tracking-wider text-muted-foreground pr-4">Action</TableHead>
+              <TableHead className="font-semibold text-xs uppercase tracking-wider text-muted-foreground w-[260px]">Audit Reason</TableHead>
+              <TableHead className="font-semibold text-xs uppercase tracking-wider text-muted-foreground w-28">Source</TableHead>
+              <TableHead className="font-semibold text-xs uppercase tracking-wider text-muted-foreground w-36">Acquired At</TableHead>
+              <TableHead className="text-right font-semibold text-xs uppercase tracking-wider text-muted-foreground pr-4 w-36">Action</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -537,16 +369,16 @@ export function LeadsTable({
               return (
                 <React.Fragment key={lead.id}>
                   <TableRow
-                    className={`group hover:bg-muted/10 transition-all duration-300 ease-in-out border-b border-muted/30 ${
+                     className={`group hover:bg-muted/10 transition-all duration-300 ease-in-out border-b border-muted/30 ${
                       isExpanded ? 'bg-muted/5' : ''
                     }`}
                   >
-                    <TableCell className="py-4 pl-4 w-10 text-center">
+                    <TableCell className="py-4 pl-4 w-12 text-center">
                       <Button
                         variant="ghost"
                         size="icon"
                         onClick={() => toggleRow(lead.id)}
-                        className="h-7 w-7 text-muted-foreground hover:text-foreground transition-all"
+                        className="h-9 w-9 text-muted-foreground hover:text-foreground transition-all"
                         title={isExpanded ? "Hide detailed audit" : "Inspect marketing audit details"}
                       >
                         {isExpanded ? (
@@ -556,22 +388,22 @@ export function LeadsTable({
                         )}
                       </Button>
                     </TableCell>
-                    <TableCell className="font-semibold text-muted-foreground py-4 text-xs">
+                    <TableCell className="font-semibold text-muted-foreground py-4 text-sm">
                       {(currentPage - 1) * pageSize + index + 1}
                     </TableCell>
                     <TableCell className="py-4">
-                      <div className="flex flex-col gap-0.5 max-w-sm">
-                        <span className="font-bold text-foreground text-sm leading-snug">{lead.name || 'N/A'}</span>
+                      <div className="flex flex-col gap-1 max-w-sm">
+                        <span className="font-bold text-foreground text-base leading-snug">{lead.name || 'N/A'}</span>
                         {/* Rating and Reviews */}
                         {meta.rating !== null && (
-                          <div className="flex items-center gap-1.5 text-[11px] text-amber-500 font-bold mt-0.5">
-                            <span className="flex items-center"><Star className="w-3 h-3 fill-current mr-0.5" />{meta.rating}</span>
+                          <div className="flex items-center gap-1.5 text-xs text-amber-500 font-bold mt-0.5">
+                            <span className="flex items-center"><Star className="w-3.5 h-3.5 fill-current mr-0.5" />{meta.rating}</span>
                             <span className="text-muted-foreground font-normal">({meta.reviews || 0} reviews)</span>
                           </div>
                         )}
                         {/* Physical Address */}
                         {meta.address && (
-                          <span className="text-[11px] text-muted-foreground truncate leading-normal mt-0.5" title={meta.address}>
+                          <span className="text-xs text-muted-foreground truncate leading-normal mt-0.5" title={meta.address}>
                             {meta.address}
                           </span>
                         )}
@@ -583,13 +415,13 @@ export function LeadsTable({
                         {lead.phone ? (
                           <a
                             href={`tel:${lead.phone}`}
-                            className="inline-flex items-center gap-1.5 text-primary hover:underline hover:text-primary/80 transition-colors font-semibold text-xs"
+                            className="inline-flex items-center gap-1.5 text-primary hover:underline hover:text-primary/80 transition-colors font-semibold text-sm"
                           >
-                            <Phone className="w-3.5 h-3.5 text-muted-foreground" />
+                            <Phone className="w-4 h-4 text-muted-foreground" />
                             {lead.phone}
                           </a>
                         ) : (
-                          <span className="text-[11px] text-muted-foreground">No Phone</span>
+                          <span className="text-xs text-muted-foreground">No Phone</span>
                         )}
                         {/* Website */}
                         {lead.website ? (
@@ -597,14 +429,14 @@ export function LeadsTable({
                             href={lead.website.startsWith('http') ? lead.website : `https://${lead.website}`}
                             target="_blank"
                             rel="noopener noreferrer"
-                            className="inline-flex items-center gap-1.5 text-emerald-600 hover:text-emerald-700 dark:text-emerald-400 dark:hover:text-emerald-300 hover:underline transition-colors font-semibold text-xs max-w-[150px] truncate"
+                            className="inline-flex items-center gap-1.5 text-emerald-600 hover:text-emerald-700 dark:text-emerald-400 dark:hover:text-emerald-300 hover:underline transition-colors font-semibold text-sm max-w-[150px] truncate"
                             title={lead.website}
                           >
-                            <Globe className="w-3.5 h-3.5 text-muted-foreground" />
+                            <Globe className="w-4 h-4 text-muted-foreground" />
                             Website
                           </a>
                         ) : (
-                          <Badge variant="secondary" className="text-[10px] w-fit mt-1">No Web</Badge>
+                          <Badge variant="secondary" className="text-xs w-fit mt-1">No Web</Badge>
                         )}
                       </div>
                     </TableCell>
@@ -614,38 +446,57 @@ export function LeadsTable({
                           href={meta.maps_url}
                           target="_blank"
                           rel="noopener noreferrer"
-                          className="inline-flex items-center justify-center h-8 w-8 rounded-lg border border-border bg-card hover:bg-muted text-primary hover:text-primary/80 transition-all shadow-sm mx-auto"
+                          className="inline-flex items-center justify-center h-9 w-9 rounded-lg border border-border bg-card hover:bg-muted text-primary hover:text-primary/80 transition-all shadow-sm mx-auto"
                           title="Open Google Maps Profile"
                         >
                           <MapPin className="w-4 h-4 text-rose-500 fill-rose-500/10" />
                         </a>
                       ) : (
-                        <span className="text-[11px] text-muted-foreground">-</span>
+                        <span className="text-xs text-muted-foreground">-</span>
                       )}
                     </TableCell>
                     <TableCell className="py-4">
-                      <ScoreBadge score={lead.score} />
+                      {/* Phase A1 Score & Tier Badge */}
+                      <div className="flex flex-col gap-1.5 w-fit">
+                        <ScoreBadge score={lead.score} />
+                        {(() => {
+                          const badge = getTierBadge(lead.tier ?? lead.problems?.tier);
+                          return (
+                            <span className={`text-xs font-semibold px-2 py-0.5 rounded-full border text-center whitespace-nowrap ${badge.color}`}>
+                              {badge.label}
+                            </span>
+                          );
+                        })()}
+                      </div>
                     </TableCell>
-                    <TableCell className="text-muted-foreground max-w-[200px] truncate py-4 text-xs font-medium" title={meta.text}>
-                      {meta.text}
+                    <TableCell className="py-4 text-sm">
+                      <p className="text-muted-foreground line-clamp-2 leading-relaxed font-semibold" title={meta.text}>
+                        {meta.text}
+                      </p>
                     </TableCell>
                     <TableCell className="py-4">
-                      <Badge variant="secondary" className="text-[10px] font-semibold whitespace-nowrap">
+                      <Badge variant="secondary" className="text-xs font-semibold whitespace-nowrap">
                         {lead.source || 'Manual'}
                       </Badge>
+                    </TableCell>
+                    <TableCell className="py-4 text-xs font-medium text-muted-foreground leading-normal">
+                      {lead.created_at ? new Date(lead.created_at).toLocaleString('en-IN', {
+                        dateStyle: 'medium',
+                        timeStyle: 'short'
+                      }) : 'N/A'}
                     </TableCell>
                     <TableCell className="text-right py-4 pr-4">
                       <Button
                         variant="outline"
                         size="sm"
-                        className="text-[10px] font-bold h-7 px-2.5 border-primary/20 bg-primary/5 hover:bg-primary/10 text-primary transition-all duration-200"
+                        className="text-xs font-bold h-9 px-3 border-primary/20 bg-primary/5 hover:bg-primary/10 text-primary transition-all duration-200"
                         onClick={() => onMarkCalled(lead.id)}
                         disabled={callingId === lead.id}
                       >
                         {callingId === lead.id ? (
                           <span className="animate-spin mr-1">⚡</span>
                         ) : (
-                          <Check className="w-3 h-3 mr-1" />
+                          <Check className="w-3.5 h-3.5 mr-1" />
                         )}
                         Mark Called
                       </Button>
@@ -654,12 +505,20 @@ export function LeadsTable({
 
                   {isExpanded && (
                     <TableRow className="bg-muted/5 hover:bg-muted/5 border-b border-muted/30 animate-in fade-in duration-200">
-                      <TableCell colSpan={9} className="p-6">
+                      <TableCell colSpan={10} className="p-6">
                         <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
                           <div className="lg:col-span-7">
                             <Card>
                               <CardContent className="p-5">
-                                <AuditChecklist reasonText={meta.text} score={lead.score} />
+                                <AuditChecklist 
+                                  lead={lead}
+                                  reasonText={meta.text} 
+                                  score={lead.score} 
+                                  revenueScore={lead.revenue_score}
+                                  contactScore={lead.contact_score}
+                                  intentNorm={lead.problems?.intentNorm ?? lead.intent_score ?? 0}
+                                  digitalGapNorm={lead.problems?.digitalGapNorm ?? lead.digital_gap_score ?? 0}
+                                />
                               </CardContent>
                             </Card>
                           </div>
