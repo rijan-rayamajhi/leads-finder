@@ -4,11 +4,10 @@ import { useState } from 'react';
 import Link from 'next/link';
 import Image from 'next/image';
 import { Card, CardContent } from '@/components/ui/card';
-import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
 import { 
   CheckCircle2, 
   Sparkles, 
-  TrendingUp, 
   HelpCircle, 
   ChevronDown, 
   ChevronUp, 
@@ -319,38 +318,5 @@ export default function LandingPage() {
       </footer>
 
     </div>
-  );
-}
-
-// Simple internal Button Component to avoid conflicts or additional dependencies
-function Button({ children, className = '', variant = 'default', size = 'default', type = 'button', ...props }: any) {
-  let baseStyles = 'inline-flex items-center justify-center rounded-xl font-bold transition-all focus:outline-none disabled:opacity-50 disabled:pointer-events-none';
-  
-  let variantStyles = 'bg-primary text-primary-foreground hover:bg-primary/95 hover:shadow-primary/5 active:scale-[0.98]';
-  if (variant === 'outline') {
-    variantStyles = 'border border-input bg-background hover:bg-accent hover:text-accent-foreground active:scale-[0.98]';
-  } else if (variant === 'ghost') {
-    variantStyles = 'hover:bg-accent hover:text-accent-foreground';
-  } else if (variant === 'secondary') {
-    variantStyles = 'bg-secondary text-secondary-foreground hover:bg-secondary/80';
-  }
-  
-  let sizeStyles = 'h-10 px-4 py-2 text-sm';
-  if (size === 'sm') {
-    sizeStyles = 'h-9 px-3 text-xs';
-  } else if (size === 'lg') {
-    sizeStyles = 'h-12 px-8 text-sm';
-  } else if (size === 'icon') {
-    sizeStyles = 'h-10 w-10';
-  }
-  
-  return (
-    <button
-      type={type}
-      className={`${baseStyles} ${variantStyles} ${sizeStyles} ${className}`}
-      {...props}
-    >
-      {children}
-    </button>
   );
 }
