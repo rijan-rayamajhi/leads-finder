@@ -5,6 +5,7 @@ export async function analyzeWebsite(website: string | null): Promise<{
   hasContactForm: boolean;
   hasEmail: boolean;
   hasWeakContent: boolean;
+  html?: string;
 }> {
   // If no website
   if (!website) {
@@ -48,6 +49,7 @@ export async function analyzeWebsite(website: string | null): Promise<{
       hasContactForm,
       hasEmail,
       hasWeakContent,
+      html,
     };
   } catch {
     // Network error, timeout, or DNS failure = broken

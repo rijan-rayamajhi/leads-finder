@@ -95,31 +95,35 @@ function ScoreBadge({ score }: { score: number }) {
 }
 
 function AuditChecklist({ reasonText, score }: { reasonText: string; score: number }) {
-  const normalized = reasonText.toLowerCase();
+  const pitchIndex = reasonText.indexOf('Suggested Pitch:');
+  const suggestedPitch = pitchIndex !== -1 ? reasonText.substring(pitchIndex + 'Suggested Pitch:'.length).trim() : null;
+
+  const cleanReasonText = pitchIndex !== -1 ? reasonText.substring(0, pitchIndex) : reasonText;
+  const cleanNormalized = cleanReasonText.toLowerCase();
   
   // 1. Website Status check
   let websiteStatus: 'none' | 'broken' | 'ok' = 'ok';
   let websiteLabel = 'Website Active';
   let websitePoints = 0;
   
-  if (normalized.includes('no website')) {
+  if (cleanNormalized.includes('no website')) {
     websiteStatus = 'none';
     websiteLabel = 'No Website';
     websitePoints = 60;
-  } else if (normalized.includes('broken website')) {
+  } else if (cleanNormalized.includes('broken website')) {
     websiteStatus = 'broken';
     websiteLabel = 'Broken / Offline Website';
     websitePoints = 40;
   }
 
   // 2. Contact Form check
-  const hasNoContactForm = normalized.includes('no contact form');
+  const hasNoContactForm = cleanNormalized.includes('no contact form');
   
   // 3. Email check
-  const hasNoEmail = normalized.includes('no email');
+  const hasNoEmail = cleanNormalized.includes('no email');
   
   // 4. Content check
-  const hasWeakContent = normalized.includes('weak content');
+  const hasWeakContent = cleanNormalized.includes('weak content');
 
   return (
     <div className="space-y-3.5">
@@ -231,6 +235,19 @@ function AuditChecklist({ reasonText, score }: { reasonText: string; score: numb
           </CardContent>
         </Card>
       </div>
+
+      {suggestedPitch && (
+        <Card className="bg-primary/5 border-primary/20 mt-3 animate-in fade-in slide-in-from-top-1 duration-300">
+          <CardContent className="p-3.5 space-y-1.5">
+            <span className="font-extrabold uppercase text-[9px] tracking-wider text-primary flex items-center gap-1">
+              ✨ Suggested Outreach Pitch
+            </span>
+            <p className="text-xs text-foreground font-medium italic leading-relaxed">
+              &quot;{suggestedPitch}&quot;
+            </p>
+          </CardContent>
+        </Card>
+      )}
     </div>
   );
 }

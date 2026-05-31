@@ -19,19 +19,38 @@ export async function scoreLead(website: string | null): Promise<ScoreResult> {
     reasons.push('Broken website');
   }
 
-  if (!analysis.hasContactForm) {
-    score += 15;
-    reasons.push('No contact form');
-  }
+  // Use local heuristic-based scoring
+  if (analysis.status === 'ok') {
+    if (!analysis.hasContactForm) {
+      score += 15;
+      reasons.push('No contact form');
+    }
 
-  if (!analysis.hasEmail) {
-    score += 10;
-    reasons.push('No email');
-  }
+    if (!analysis.hasEmail) {
+      score += 10;
+      reasons.push('No email');
+    }
 
-  if (analysis.hasWeakContent) {
-    score += 10;
-    reasons.push('Weak content');
+    if (analysis.hasWeakContent) {
+      score += 10;
+      reasons.push('Weak content');
+    }
+  } else {
+    // For broken or non-existent sites, apply default penalties
+    if (!analysis.hasContactForm) {
+      score += 15;
+      reasons.push('No contact form');
+    }
+
+    if (!analysis.hasEmail) {
+      score += 10;
+      reasons.push('No email');
+    }
+
+    if (analysis.hasWeakContent) {
+      score += 10;
+      reasons.push('Weak content');
+    }
   }
 
   return {

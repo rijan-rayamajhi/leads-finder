@@ -37,7 +37,8 @@ import {
   Maximize2,
   Minimize2,
   ChevronLeft,
-  ChevronRight
+  ChevronRight,
+  RefreshCw
 } from 'lucide-react';
 
 const SUGGESTIONS = [
@@ -711,7 +712,7 @@ export default function LeadGenDashboard() {
       </Sheet>
 
       {/* Main Page Workspace Layout Container */}
-      <div className={`flex-1 flex flex-col min-h-screen overflow-x-hidden w-full max-w-full relative transition-all duration-300 ease-in-out ${
+      <div className={`flex-1 flex flex-col min-h-screen overflow-x-hidden w-full max-w-full relative min-w-0 transition-all duration-300 ease-in-out ${
         leftSidebarCollapsed ? 'lg:pl-16' : 'lg:pl-64'
       }`}>
         {/* Dashboard Top Header */}
@@ -737,7 +738,69 @@ export default function LeadGenDashboard() {
               </div>
             </div>
             
-            
+            {/* Header Right Content: Active tab metrics and refresh quick actions */}
+            <div className="flex items-center gap-2">
+              {activeTab === 'prospects' && (
+                <>
+                  <div className="hidden sm:flex items-center gap-1.5 px-2.5 py-1 bg-primary/10 border border-primary/20 text-primary text-[10px] font-extrabold rounded-full">
+                    <span className="w-1.5 h-1.5 rounded-full bg-primary animate-pulse" />
+                    <span>ENGINE ACTIVE</span>
+                  </div>
+                  <Button
+                    variant="outline"
+                    size="icon"
+                    onClick={() => {
+                      setRefreshTrigger((prev) => prev + 1);
+                      setCurrentPage(1);
+                    }}
+                    className="h-8 w-8 text-muted-foreground hover:text-foreground hover:bg-muted"
+                    title="Refresh Prospects"
+                  >
+                    <RefreshCw className={`w-3.5 h-3.5 ${isLoadingLeads ? 'animate-spin text-primary' : ''}`} />
+                  </Button>
+                </>
+              )}
+
+              {activeTab === 'crm' && (
+                <>
+                  <div className="hidden sm:flex items-center gap-1.5 px-2.5 py-1 bg-emerald-500/10 border border-emerald-500/20 text-emerald-600 dark:text-emerald-400 text-[10px] font-extrabold rounded-full">
+                    <TrendingUp className="w-3.5 h-3.5 animate-pulse" />
+                    <span>${pipelineValue.toLocaleString()} PIPELINE</span>
+                  </div>
+                  <Button
+                    variant="outline"
+                    size="icon"
+                    onClick={() => {
+                      setCrmRefreshTrigger((prev) => prev + 1);
+                      setCurrentPage(1);
+                    }}
+                    className="h-8 w-8 text-muted-foreground hover:text-foreground hover:bg-muted"
+                    title="Sync CRM Database"
+                  >
+                    <RefreshCw className={`w-3.5 h-3.5 ${isLoadingCrm ? 'animate-spin text-emerald-600' : ''}`} />
+                  </Button>
+                </>
+              )}
+
+              {activeTab === 'history' && (
+                <>
+                  <div className="hidden sm:flex items-center gap-1.5 px-2.5 py-1 bg-muted border border-border text-muted-foreground text-[10px] font-extrabold rounded-full">
+                    <span>{history.length} SEARCHES</span>
+                  </div>
+                  <Button
+                    variant="outline"
+                    size="icon"
+                    onClick={() => {
+                      fetchHistory();
+                    }}
+                    className="h-8 w-8 text-muted-foreground hover:text-foreground hover:bg-muted"
+                    title="Refresh Search History"
+                  >
+                    <RefreshCw className="w-3.5 h-3.5" />
+                  </Button>
+                </>
+              )}
+            </div>
           </div>
         </header>
 
@@ -1323,9 +1386,9 @@ export default function LeadGenDashboard() {
 
         {/* CRM Lead Notes & Editor — Shadcn Sheet */}
         <Sheet open={!!selectedCRMLead} onOpenChange={(open) => { if (!open) setSelectedCRMLead(null); }}>
-          <SheetContent side="right" className={`${notesSidebarWide ? 'lg:max-w-2xl' : 'lg:max-w-md'} w-full p-0 flex flex-col h-full transition-all duration-300`}>
+          <SheetContent side="right" className={`${notesSidebarWide ? 'lg:max-w-2xl' : 'lg:max-w-md'} w-full max-w-full p-0 flex flex-col h-full overflow-x-hidden transition-all duration-300`}>
             {/* Drawer Header */}
-            <SheetHeader className="px-6 py-5 border-b border-border shrink-0 bg-muted/20 space-y-1">
+            <SheetHeader className="px-6 py-5 pr-12 border-b border-border shrink-0 bg-muted/20 space-y-1 relative">
               <div className="flex items-center justify-between">
                 <div className="space-y-1">
                   <Badge className="text-[10px] uppercase tracking-wider bg-primary/10 text-primary border-primary/20">
@@ -1573,7 +1636,7 @@ export default function LeadGenDashboard() {
             </div>
 
             {/* Drawer Footer Actions */}
-            <SheetFooter className="p-4 pb-safe-padded border-t border-border shrink-0 bg-muted/10 grid grid-cols-2 gap-3 sm:space-x-0">
+            <div className="p-4 pb-safe-padded border-t border-border shrink-0 bg-muted/10 grid grid-cols-2 gap-3">
               <Button 
                 variant="outline" 
                 onClick={() => setSelectedCRMLead(null)}
@@ -1587,7 +1650,7 @@ export default function LeadGenDashboard() {
               >
                 Save Changes
               </Button>
-            </SheetFooter>
+            </div>
           </SheetContent>
         </Sheet>
 
