@@ -5,7 +5,7 @@ import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
-import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription, SheetFooter } from '@/components/ui/sheet';
+import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from '@/components/ui/sheet';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -38,7 +38,13 @@ import {
   Minimize2,
   ChevronLeft,
   ChevronRight,
-  RefreshCw
+  RefreshCw,
+  Phone,
+  Flame,
+  Target,
+  Award,
+  Sparkles,
+  Check
 } from 'lucide-react';
 
 const SUGGESTIONS = [
@@ -59,6 +65,12 @@ export default function LeadGenDashboard() {
   const [callingId, setCallingId] = useState<number | null>(null);
   const [refreshTrigger, setRefreshTrigger] = useState(0);
   
+  // Advanced Pipeline UI State Variables
+  const [tierFilter, setTierFilter] = useState<string>('all');
+  const [nicheFilter, setNicheFilter] = useState<string>('all');
+  const [cityFilter, setCityFilter] = useState<string>('all');
+  const [sortBy, setSortBy] = useState<string>('final_score');
+
   // CRM leads and loading state
   const [crmLeads, setCrmLeads] = useState<Lead[]>([]);
   const [isLoadingCrm, setIsLoadingCrm] = useState(true);
@@ -134,6 +146,10 @@ export default function LeadGenDashboard() {
 
   // Real-time progress tracking state
   const [progressLogs, setProgressLogs] = useState<string[]>([]);
+  const [progressPercent, setProgressPercent] = useState<number>(0);
+  const [displayProgress, setDisplayProgress] = useState<number>(0);
+  const [isStreamDone, setIsStreamDone] = useState<boolean>(false);
+  const [currentProgressMessage, setCurrentProgressMessage] = useState<string>('');
   
   // Scraper console container ref for local scrolling
   const consoleContainerRef = useRef<HTMLDivElement | null>(null);
@@ -143,7 +159,6 @@ export default function LeadGenDashboard() {
   const [confirmDialogAction, setConfirmDialogAction] = useState<(() => void) | null>(null);
   const [confirmDialogTitle, setConfirmDialogTitle] = useState('');
   const [confirmDialogDesc, setConfirmDialogDesc] = useState('');
-
 
   const fetchHistory = async () => {
     try {
@@ -170,6 +185,57 @@ export default function LeadGenDashboard() {
       consoleContainerRef.current.scrollTop = consoleContainerRef.current.scrollHeight;
     }
   }, [progressLogs]);
+
+  // Decoupled ultra-smooth visual progress easing logic (25 fps updates)
+  useEffect(() => {
+    if (!isRunningPipeline) {
+      return;
+    }
+
+    const interval = setInterval(() => {
+      setDisplayProgress((prev) => {
+        if (prev >= 100) {
+          clearInterval(interval);
+          return 100;
+        }
+
+        // If target progress is 100% (pipeline completion signaled)
+        if (progressPercent === 100) {
+          const diff = 100 - prev;
+          const step = Math.max(1, diff * 0.12); // Smooth ease-out catchup
+          const nextVal = prev + step;
+          return nextVal >= 99.8 ? 100 : parseFloat(nextVal.toFixed(1));
+        }
+
+        // If display progress lags behind reported progress
+        if (prev < progressPercent) {
+          const diff = progressPercent - prev;
+          const step = Math.max(0.4, diff * 0.08); // Ease towards target
+          return parseFloat((prev + step).toFixed(1));
+        } else {
+          // Creep forward slowly to show visual activity during long steps (stops at 95%)
+          if (prev < 95) {
+            return parseFloat((prev + 0.05).toFixed(1));
+          }
+          return prev;
+        }
+      });
+    }, 40);
+
+    return () => clearInterval(interval);
+  }, [progressPercent, isRunningPipeline]);
+
+  // Handle delayed closure of progress console upon 100% easing completion
+  useEffect(() => {
+    if (displayProgress === 100 && isStreamDone) {
+      const timer = setTimeout(() => {
+        setIsRunningPipeline(false);
+        setIsStreamDone(false);
+        setDisplayProgress(0); // Safely reset here within an async callback
+      }, 1200);
+      return () => clearTimeout(timer);
+    }
+  }, [displayProgress, isStreamDone]);
 
   useEffect(() => {
     let active = true;
@@ -372,6 +438,10 @@ export default function LeadGenDashboard() {
     setPipelineResult(null);
     setErrorText(null);
     setProgressLogs([]);
+    setProgressPercent(0);
+    setDisplayProgress(0);
+    setIsStreamDone(false);
+    setCurrentProgressMessage('');
 
     try {
       const res = await fetch('/api/run', {
@@ -407,8 +477,16 @@ export default function LeadGenDashboard() {
               const data = JSON.parse(trimmedLine.slice(6));
               if (data.status === 'progress') {
                 setProgressLogs((prev) => [...prev, data.message]);
+                if (data.progress !== undefined) {
+                  setProgressPercent(data.progress);
+                }
+                if (data.active_biz) {
+                  setCurrentProgressMessage(data.active_biz);
+                }
               } else if (data.status === 'complete') {
                 setPipelineResult(data.result);
+                setProgressPercent(100);
+                setCurrentProgressMessage('Scrape complete.');
               } else if (data.status === 'error') {
                 throw new Error(data.message || 'Pipeline failed during streaming execution.');
               }
@@ -422,11 +500,15 @@ export default function LeadGenDashboard() {
       setRefreshTrigger((prev) => prev + 1);
       setCurrentPage(1);
       fetchHistory();
+
+      // Trigger the completion animation sequence in the frontend
+      setProgressPercent(100);
+      setIsStreamDone(true);
     } catch (err: unknown) {
       const error = err as Error;
       setErrorText(error.message || 'Something went wrong. Try again.');
-    } finally {
       setIsRunningPipeline(false);
+      setIsStreamDone(false);
     }
   };
 
@@ -506,23 +588,20 @@ export default function LeadGenDashboard() {
     }
   };
 
-  // Client-side filter query matching source
-  const filteredLeads = searchFilter
+
+  // Geographic Keywords Lists matching scorer.ts geographic weightings
+  const PREMIUM_KEYWORDS = ['bandra','koramangala','juhu','powai','worli','lower parel','indiranagar','south mumbai','andheri west','hiranandani','khan market','hauz khas','whitefield','connaught place'];
+  const METRO_KEYWORDS = ['mumbai','delhi','bengaluru','bangalore','hyderabad','chennai','pune','kolkata','ahmedabad','gurgaon','gurugram','noida','surat','jaipur'];
+  const TIER2_KEYWORDS = ['nagpur','indore','lucknow','bhopal','vadodara','coimbatore','kochi','patna','chandigarh','visakhapatnam','vizag','mysuru','mysore','rajkot','nashik','aurangabad'];
+
+  // 1. Raw Leads Sources
+  const prospectsSourceLeads = searchFilter
     ? leads.filter((lead) => lead.source?.toLowerCase().trim() === searchFilter.toLowerCase().trim())
     : leads;
 
-  // Calculate paginated leads
-  const totalLeads = filteredLeads.length;
-  const totalPages = Math.ceil(totalLeads / pageSize) || 1;
-  const activePage = Math.min(Math.max(1, currentPage), totalPages);
-
-  const startIndex = (activePage - 1) * pageSize;
-  const endIndex = startIndex + pageSize;
-  const paginatedLeads = filteredLeads.slice(startIndex, endIndex);
-
   // CRM Search & Filters
   const [crmSearchQuery, setCrmSearchQuery] = useState('');
-  const filteredCrmLeads = crmLeads.filter(l => {
+  const crmSourceLeads = crmLeads.filter(l => {
     const matchesStatus = crmStatusFilter === 'all' || l.crm_status === crmStatusFilter;
     const matchesSearch = crmSearchQuery.trim() === '' || 
       l.name?.toLowerCase().includes(crmSearchQuery.toLowerCase()) || 
@@ -530,6 +609,88 @@ export default function LeadGenDashboard() {
       l.source?.toLowerCase().includes(crmSearchQuery.toLowerCase());
     return matchesStatus && matchesSearch;
   });
+
+  // Choose source based on active tab
+  const currentLeadsList = activeTab === 'prospects' ? prospectsSourceLeads : crmSourceLeads;
+
+  // 2. Filter by Tier
+  const filteredByTier = tierFilter === 'all' 
+    ? currentLeadsList 
+    : currentLeadsList.filter(l => (l.tier ?? l.problems?.tier) === tierFilter);
+
+  // 3. Filter by Niche
+  const filteredByNiche = nicheFilter === 'all' 
+    ? filteredByTier 
+    : filteredByTier.filter(lead => {
+        const name = (lead.name || '').toLowerCase();
+        const src  = (lead.source || '').toLowerCase();
+        const nicheMap: Record<string, RegExp> = {
+          clinic:      /dentist|dental|clinic|hospital|doctor|medical/i,
+          real_estate: /real.?estate|builder|property|flat|apartment/i,
+          gym:         /gym|fitness|yoga|wellness|spa|salon|beauty/i,
+          restaurant:  /restaurant|cafe|food|dhaba|biryani|dining/i,
+          consultant:  /lawyer|advocate|ca |chartered|consultant|tax/i,
+          education:   /school|college|coaching|tuition|academy/i,
+          retail:      /shop|store|retail|boutique|mart/i,
+        };
+        return nicheMap[nicheFilter]?.test(name + ' ' + src) ?? true;
+      });
+
+  // 4. Filter by City Geographies
+  const filteredByCity = cityFilter === 'all' 
+    ? filteredByNiche 
+    : filteredByNiche.filter(l => {
+        const addr = (l.address || '').toLowerCase();
+        if (cityFilter === 'premium') return PREMIUM_KEYWORDS.some(k => addr.includes(k));
+        if (cityFilter === 'metro') return METRO_KEYWORDS.some(k => addr.includes(k));
+        if (cityFilter === 'tier2') return TIER2_KEYWORDS.some(k => addr.includes(k));
+        return true;
+      });
+
+  // 5. Sorted Leads Pipeline
+  const sortedLeads = [...filteredByCity].sort((a, b) => {
+    if (sortBy === 'created_at') {
+      return new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime();
+    }
+    if (sortBy === 'deal_value') {
+      return (b.deal_value || 0) - (a.deal_value || 0);
+    }
+    if (sortBy === 'priority_rank') {
+      const aRank = a.priority_rank ?? 999999;
+      const bRank = b.priority_rank ?? 999999;
+      return aRank - bRank;
+    }
+    if (sortBy === 'intent_score') {
+      const aVal = a.intent_score ?? a.problems?.intentNorm ?? 0;
+      const bVal = b.intent_score ?? b.problems?.intentNorm ?? 0;
+      return bVal - aVal;
+    }
+    if (sortBy === 'digital_gap_score') {
+      const aVal = a.digital_gap_score ?? a.problems?.digitalGapNorm ?? 0;
+      const bVal = b.digital_gap_score ?? b.problems?.digitalGapNorm ?? 0;
+      return bVal - aVal;
+    }
+    
+    // Default: quality score (score / final_score)
+    const aVal = a.final_score ?? a.score ?? 0;
+    const bVal = b.final_score ?? b.score ?? 0;
+    return bVal - aVal;
+  });
+
+  // Calculate paginated leads for Prospects Tab
+  const totalLeads = activeTab === 'prospects' ? sortedLeads.length : prospectsSourceLeads.length;
+  const totalPages = Math.ceil(totalLeads / pageSize) || 1;
+  const activePage = Math.min(Math.max(1, currentPage), totalPages);
+  const startIndex = (activePage - 1) * pageSize;
+  const endIndex = startIndex + pageSize;
+  const paginatedLeads = activeTab === 'prospects' ? sortedLeads.slice(startIndex, endIndex) : [];
+
+  // Calculate paginated CRM leads for CRM Tab
+  const totalCrmLeads = activeTab === 'crm' ? sortedLeads.length : crmSourceLeads.length;
+  const crmPages = Math.ceil(totalCrmLeads / pageSize) || 1;
+  const activeCrmPage = Math.min(Math.max(1, currentPage), crmPages);
+  const startCrmIdx = (activeCrmPage - 1) * pageSize;
+  const paginatedCrmLeads = activeTab === 'crm' ? sortedLeads.slice(startCrmIdx, startCrmIdx + pageSize) : [];
 
   // Calculate CRM Stats
   const activeCrmDeals = crmLeads.filter(l => l.crm_status !== 'lost' && l.crm_status !== 'won');
@@ -551,12 +712,6 @@ export default function LeadGenDashboard() {
     compDate.setHours(0, 0, 0, 0);
     return compDate.getTime() <= today.getTime();
   }).length;
-
-  const totalCrmLeads = filteredCrmLeads.length;
-  const crmPages = Math.ceil(totalCrmLeads / pageSize) || 1;
-  const activeCrmPage = Math.min(Math.max(1, currentPage), crmPages);
-  const startCrmIdx = (activeCrmPage - 1) * pageSize;
-  const paginatedCrmLeads = filteredCrmLeads.slice(startCrmIdx, startCrmIdx + pageSize);
 
   return (
     <div className="min-h-screen bg-background flex font-sans antialiased text-foreground overflow-x-hidden w-full max-w-full relative">
@@ -742,10 +897,6 @@ export default function LeadGenDashboard() {
             <div className="flex items-center gap-2">
               {activeTab === 'prospects' && (
                 <>
-                  <div className="hidden sm:flex items-center gap-1.5 px-2.5 py-1 bg-primary/10 border border-primary/20 text-primary text-[10px] font-extrabold rounded-full">
-                    <span className="w-1.5 h-1.5 rounded-full bg-primary animate-pulse" />
-                    <span>ENGINE ACTIVE</span>
-                  </div>
                   <Button
                     variant="outline"
                     size="icon"
@@ -763,10 +914,6 @@ export default function LeadGenDashboard() {
 
               {activeTab === 'crm' && (
                 <>
-                  <div className="hidden sm:flex items-center gap-1.5 px-2.5 py-1 bg-emerald-500/10 border border-emerald-500/20 text-emerald-600 dark:text-emerald-400 text-[10px] font-extrabold rounded-full">
-                    <TrendingUp className="w-3.5 h-3.5 animate-pulse" />
-                    <span>${pipelineValue.toLocaleString()} PIPELINE</span>
-                  </div>
                   <Button
                     variant="outline"
                     size="icon"
@@ -808,38 +955,78 @@ export default function LeadGenDashboard() {
         <main className="flex-1 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 md:py-8 w-full space-y-6">
           {activeTab === 'prospects' && (
             <>
-              {/* Dashboard Dynamic Real-time Stats */}
-              <section className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4 animate-in fade-in duration-300">
-                <Card>
+              {/* Dashboard Dynamic Real-time Stats Grid */}
+              <section className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 sm:gap-4 animate-in fade-in duration-300">
+                <Card className="hover:shadow-md transition-all">
                   <CardContent className="p-4">
-                    <span className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider block">Total Prospects</span>
-                    <span className="text-2xl font-bold text-foreground tracking-tight block mt-1">{filteredLeads.length}</span>
+                    <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider flex items-center gap-1.5">
+                      <Database className="w-3.5 h-3.5 text-primary shrink-0" /> Total Prospects
+                    </span>
+                    <span className="text-2xl font-bold text-foreground tracking-tight block mt-1">{prospectsSourceLeads.length}</span>
                   </CardContent>
                 </Card>
 
-                <Card>
+                <Card className="hover:shadow-md transition-all">
                   <CardContent className="p-4">
-                    <span className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider block">Pending Calls</span>
-                    <span className="text-2xl font-bold text-foreground tracking-tight block mt-1">{filteredLeads.filter(l => !l.called).length}</span>
+                    <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider flex items-center gap-1.5">
+                      <Phone className="w-3.5 h-3.5 text-amber-500 shrink-0" /> Pending Calls
+                    </span>
+                    <span className="text-2xl font-bold text-foreground tracking-tight block mt-1">{prospectsSourceLeads.filter(l => !l.called).length}</span>
                   </CardContent>
                 </Card>
 
-                <Card>
+                <Card className="hover:shadow-md transition-all">
                   <CardContent className="p-4">
-                    <span className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider block">Hot Prospects</span>
-                    <span className="text-2xl font-bold text-foreground tracking-tight block mt-1">{filteredLeads.filter(l => l.score >= 70).length}</span>
+                    <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider flex items-center gap-1.5">
+                      <Sparkles className="w-3.5 h-3.5 text-purple-500 shrink-0 animate-pulse" /> {"Hot Prospects (>=70)"}
+                    </span>
+                    <span className="text-2xl font-bold text-foreground tracking-tight block mt-1">{prospectsSourceLeads.filter(l => l.score >= 70).length}</span>
                   </CardContent>
                 </Card>
 
-                <Card>
+                <Card className="hover:shadow-md transition-all">
                   <CardContent className="p-4">
-                    <span className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider block">Avg Quality</span>
+                    <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider flex items-center gap-1.5">
+                      <Award className="w-3.5 h-3.5 text-indigo-500 shrink-0" /> Avg Quality
+                    </span>
                     <span className="text-2xl font-bold text-foreground tracking-tight block mt-1">
-                      {filteredLeads.length > 0 ? Math.round(filteredLeads.reduce((acc, l) => acc + l.score, 0) / filteredLeads.length) : 0}
+                      {prospectsSourceLeads.length > 0 ? Math.round(prospectsSourceLeads.reduce((acc, l) => acc + l.score, 0) / prospectsSourceLeads.length) : 0}
+                    </span>
+                  </CardContent>
+                </Card>
+
+                {/* 2 New High-Level Metrics Cards */}
+                <Card className="border-rose-500/10 bg-rose-500/[0.02] hover:shadow-md transition-all">
+                  <CardContent className="p-4">
+                    <span className="text-[10px] font-bold text-rose-500 uppercase tracking-wider flex items-center gap-1.5">
+                      <Flame className="w-3.5 h-3.5 text-rose-500 shrink-0" /> Hot Leads
+                    </span>
+                    <span className="text-2xl font-extrabold text-rose-600 dark:text-rose-400 tracking-tight block mt-1">
+                      {prospectsSourceLeads.filter(l => (l.tier ?? l.problems?.tier) === 'hot').length}
+                    </span>
+                  </CardContent>
+                </Card>
+
+                <Card className="border-purple-500/10 bg-purple-500/[0.02] hover:shadow-md transition-all">
+                  <CardContent className="p-4">
+                    <span className="text-[10px] font-bold text-purple-500 uppercase tracking-wider flex items-center gap-1.5">
+                      <Target className="w-3.5 h-3.5 text-purple-500 shrink-0" /> Avg Intent Score
+                    </span>
+                    <span className="text-2xl font-extrabold text-purple-600 dark:text-purple-400 tracking-tight block mt-1">
+                      {(() => {
+                        const validLeads = prospectsSourceLeads.filter(l => {
+                          const intentVal = l.intent_score ?? l.problems?.intentNorm;
+                          return intentVal !== undefined && intentVal !== null;
+                        });
+                        if (validLeads.length === 0) return 0;
+                        const sum = validLeads.reduce((acc, l) => acc + (l.intent_score ?? l.problems?.intentNorm ?? 0), 0);
+                        return Math.round(sum / validLeads.length);
+                      })()}%
                     </span>
                   </CardContent>
                 </Card>
               </section>
+
 
               {/* Search Panel Card */}
               <Card>
@@ -957,41 +1144,86 @@ export default function LeadGenDashboard() {
 
               {/* Real-time Streaming Progress Console */}
               {isRunningPipeline && (
-                <Card className="overflow-hidden animate-in fade-in slide-in-from-top-2 duration-300">
+                <Card className="overflow-hidden border-primary/20 bg-primary/[0.01] animate-in fade-in slide-in-from-top-2 duration-300">
                   <CardHeader className="bg-muted/40 px-5 py-3 border-b border-border">
-                    <CardTitle className="text-xs font-bold flex items-center gap-2">
-                      <Loader2 className="w-3.5 h-3.5 animate-spin text-primary" />
-                      Scraping Progress
+                    <CardTitle className="text-xs font-bold flex items-center justify-between w-full">
+                      <span className="flex items-center gap-2">
+                        <Loader2 className="w-3.5 h-3.5 animate-spin text-primary" />
+                        Scraper Engine Progress
+                      </span>
+                      <span className="text-primary font-mono text-sm font-extrabold">{Math.round(displayProgress)}%</span>
                     </CardTitle>
                   </CardHeader>
-                  <CardContent ref={consoleContainerRef} className="p-5 max-h-60 overflow-y-auto space-y-2 text-xs font-sans">
-                    {progressLogs.length === 0 ? (
-                      <div className="flex items-center gap-2 text-muted-foreground">
-                        <Loader2 className="w-3.5 h-3.5 animate-spin text-muted-foreground" />
-                        <span>Initializing Places search workers...</span>
+                  <CardContent className="p-5 space-y-4">
+                    {/* Animated Progress Bar */}
+                    <div className="space-y-2">
+                      <div className="w-full bg-muted rounded-full h-2.5 overflow-hidden border border-border/40">
+                        <div 
+                          className="bg-primary h-full rounded-full transition-all duration-300 ease-out"
+                          style={{ width: `${displayProgress}%` }}
+                        />
+                      </div>
+                      <div className="flex justify-between items-center text-[10px] text-muted-foreground font-semibold uppercase tracking-wider">
+                        <span>Initiated</span>
+                        <span>{Math.round(displayProgress) === 100 ? 'Completed' : 'Auditing Active Candidates'}</span>
+                      </div>
+                    </div>
+
+                    {/* Active Target display card */}
+                    {currentProgressMessage ? (
+                      <div className="bg-primary/5 border border-primary/10 rounded-xl p-3 flex items-start gap-3">
+                        <div className="h-7 w-7 rounded-lg bg-primary/10 border border-primary/20 flex items-center justify-center font-bold text-xs text-primary shrink-0 animate-pulse">
+                          ⚡
+                        </div>
+                        <div className="space-y-1 min-w-0">
+                          <span className="text-[9px] uppercase font-bold text-primary tracking-wider block">Currently Auditing</span>
+                          <span className="text-xs font-bold text-foreground truncate block leading-normal">{currentProgressMessage}</span>
+                        </div>
                       </div>
                     ) : (
-                      progressLogs.map((log, idx) => (
-                        <div key={idx} className="flex items-start gap-2.5 animate-in fade-in slide-in-from-bottom-1 duration-150">
-                          {idx === progressLogs.length - 1 ? (
-                            <>
-                              <span className="text-primary font-bold animate-pulse">⚡</span>
-                              <span className="text-foreground font-bold leading-normal">
-                                {log}
-                              </span>
-                            </>
-                          ) : (
-                            <>
-                              <span className="text-emerald-500 font-bold">✓</span>
-                              <span className="text-muted-foreground leading-normal">{log}</span>
-                            </>
-                          )}
-                        </div>
-                      ))
+                      <div className="flex items-center gap-2 text-muted-foreground py-2 text-xs font-medium">
+                        <Loader2 className="w-3.5 h-3.5 animate-spin text-muted-foreground" />
+                        <span>Connecting to search workers...</span>
+                      </div>
+                    )}
+
+                    {/* Collapsible Operational Logs */}
+                    {progressLogs.length > 0 && (
+                      <div className="pt-2 border-t border-border/40">
+                        <details className="group">
+                          <summary className="text-[10px] uppercase font-bold text-muted-foreground tracking-wider cursor-pointer hover:text-foreground list-none flex items-center gap-1.5 select-none focus:outline-none">
+                            <ChevronRight className="w-3.5 h-3.5 transition-transform group-open:rotate-90 text-muted-foreground" />
+                            <span>View Operational Logs ({progressLogs.length})</span>
+                          </summary>
+                          <div 
+                            ref={consoleContainerRef}
+                            className="mt-3 p-3.5 rounded-xl border border-border/80 bg-muted/20 max-h-40 overflow-y-auto space-y-2.5 font-mono text-[10.5px] leading-relaxed text-muted-foreground"
+                          >
+                            {progressLogs.map((log, idx) => {
+                              const isSkipped = log.startsWith('⏭ Skipped') || log.includes('Skipping');
+                              if (isSkipped) {
+                                return (
+                                  <div key={idx} className="flex items-center gap-2 text-muted-foreground/60 italic">
+                                    <span className="bg-muted text-muted-foreground/50 text-[8px] font-bold px-1 py-0.5 rounded border border-border shrink-0">DQ</span>
+                                    <span className="truncate">{log}</span>
+                                  </div>
+                                );
+                              }
+                              return (
+                                <div key={idx} className="flex items-start gap-2">
+                                  <span className="text-emerald-500 font-bold shrink-0">✓</span>
+                                  <span>{log}</span>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </details>
+                      </div>
                     )}
                   </CardContent>
                 </Card>
               )}
+
 
               {/* Pipeline Status Summary Card */}
               {pipelineResult && (
@@ -1050,7 +1282,7 @@ export default function LeadGenDashboard() {
                 </Card>
               )}
 
-              {/* Active Filter Badge */}
+              {/* Active Scraping Origin Filter Badge */}
               {searchFilter && (
                 <Alert className="bg-primary/10 border-primary/20 text-primary animate-in slide-in-from-top-2 duration-200">
                   <Filter className="h-4 w-4" />
@@ -1067,62 +1299,177 @@ export default function LeadGenDashboard() {
                       }}
                       className="text-[10px] font-bold h-6 px-2 mt-1"
                     >
-                      Clear Filter
+                      Clear Origin Filter
                     </Button>
                   </AlertDescription>
                 </Alert>
               )}
+                     {/* ─── Unified Filter & Sort Panel ─── */}
+              <Card className="bg-card shadow-sm animate-in fade-in duration-300">
+                <CardHeader className="px-4 sm:px-5 pt-4 pb-0 space-y-0">
+                  <div className="flex items-center justify-between">
+                    <CardTitle className="text-sm font-bold flex items-center gap-2">
+                      <Filter className="w-4 h-4 text-muted-foreground" />
+                      Prospects Database
+                    </CardTitle>
+                    <div className="flex items-center gap-2">
+                      {(tierFilter !== 'all' || nicheFilter !== 'all' || cityFilter !== 'all' || sortBy !== 'final_score' || intent !== 'high' || showAll) && (
+                        <button
+                          onClick={() => {
+                            setTierFilter('all');
+                            setNicheFilter('all');
+                            setCityFilter('all');
+                            setSortBy('final_score');
+                            setIntent('high');
+                            setShowAll(false);
+                            setCurrentPage(1);
+                          }}
+                          className="text-[11px] font-bold text-destructive hover:underline transition-all"
+                        >
+                          Clear All
+                        </button>
+                      )}
 
-              {/* Leads Table Container */}
-              <Card className="overflow-hidden">
-                <CardHeader className="p-4 sm:p-6 border-b border-border flex flex-col xl:flex-row xl:items-center xl:justify-between gap-4 space-y-0">
-                  <div className="flex flex-col gap-1">
-                    <CardTitle className="text-base font-bold leading-none">Prospects Database</CardTitle>
-                    {intent === 'low' && (
-                      <CardDescription className="text-[11px] mt-1.5 flex items-center gap-1.5">
-                        <span>ℹ️</span> Low intent prospects are automatically deleted after 7 days to keep your database clean.
-                      </CardDescription>
-                    )}
-                  </div>
-                  
-                  <div className="flex flex-col sm:flex-row gap-3 w-full xl:w-auto">
-                    {/* Quality Intent Filter — Shadcn Tabs */}
-                    <Tabs value={intent} onValueChange={(v) => { setIntent(v as 'high' | 'low' | 'all'); setCurrentPage(1); }} className="flex-1 sm:flex-initial">
-                      <TabsList className="h-9 w-full sm:w-auto">
-                        <TabsTrigger value="high" className="text-xs font-semibold flex-1 sm:flex-none px-3">High Intent</TabsTrigger>
-                        <TabsTrigger value="low" className="text-xs font-semibold flex-1 sm:flex-none px-3">Low Intent</TabsTrigger>
-                        <TabsTrigger value="all" className="text-xs font-semibold flex-1 sm:flex-none px-3">All</TabsTrigger>
-                      </TabsList>
-                    </Tabs>
-
-                    {/* Show Called Toggle — Shadcn Tabs */}
-                    <Tabs value={showAll ? 'all' : 'uncalled'} onValueChange={(v) => { setShowAll(v === 'all'); setCurrentPage(1); }} className="flex-1 sm:flex-initial">
-                      <TabsList className="h-9 w-full sm:w-auto">
-                        <TabsTrigger value="uncalled" className="text-xs font-semibold flex-1 sm:flex-none px-3 gap-1.5">
-                          <Filter className="w-3.5 h-3.5" />
-                          Uncalled
-                        </TabsTrigger>
-                        <TabsTrigger value="all" className="text-xs font-semibold flex-1 sm:flex-none px-3">
-                          All Status
-                        </TabsTrigger>
-                      </TabsList>
-                    </Tabs>
+                    </div>
                   </div>
                 </CardHeader>
 
-                <div className="p-0">
-                  <LeadsTable
-                    leads={paginatedLeads}
-                    onMarkCalled={handleMarkCalled}
-                    isLoading={isLoadingLeads}
-                    callingId={callingId}
-                    currentPage={activePage}
-                    pageSize={pageSize}
-                    totalLeads={totalLeads}
-                    onPageChange={setCurrentPage}
-                    onPageSizeChange={setPageSize}
-                  />
-                </div>
+                <CardContent className="p-4 sm:p-5 space-y-4">
+
+                  {/* Row 1: Tier + Intent + Called — all as Shadcn Tabs */}
+                  <div className="flex flex-col sm:flex-row flex-wrap gap-3">
+                    {/* Tier Filter */}
+                    <div className="space-y-1">
+                      <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider block">Tier</span>
+                      <Tabs value={tierFilter} onValueChange={(v) => { setTierFilter(v); setCurrentPage(1); }}>
+                        <TabsList className="h-9">
+                          <TabsTrigger value="all"  className="text-xs font-semibold px-3">All</TabsTrigger>
+                          <TabsTrigger value="hot"  className="text-xs font-semibold px-2.5">🔥 Hot</TabsTrigger>
+                          <TabsTrigger value="warm" className="text-xs font-semibold px-2.5">⚡ Warm</TabsTrigger>
+                          <TabsTrigger value="nurture" className="text-xs font-semibold px-2.5">🌱 Nurture</TabsTrigger>
+                          <TabsTrigger value="cold" className="text-xs font-semibold px-2.5">❄️ Cold</TabsTrigger>
+                        </TabsList>
+                      </Tabs>
+                    </div>
+
+                    {/* Intent Filter */}
+                    <div className="space-y-1">
+                      <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider block">Intent</span>
+                      <Tabs value={intent} onValueChange={(v) => { setIntent(v as 'high' | 'low' | 'all'); setCurrentPage(1); }}>
+                        <TabsList className="h-9">
+                          <TabsTrigger value="high" className="text-xs font-semibold px-3">High</TabsTrigger>
+                          <TabsTrigger value="low"  className="text-xs font-semibold px-3">Low</TabsTrigger>
+                          <TabsTrigger value="all"  className="text-xs font-semibold px-3">All</TabsTrigger>
+                        </TabsList>
+                      </Tabs>
+                    </div>
+
+                    {/* Called Status */}
+                    <div className="space-y-1">
+                      <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider block">Status</span>
+                      <Tabs value={showAll ? 'all' : 'uncalled'} onValueChange={(v) => { setShowAll(v === 'all'); setCurrentPage(1); }}>
+                        <TabsList className="h-9">
+                          <TabsTrigger value="uncalled" className="text-xs font-semibold px-3">Uncalled</TabsTrigger>
+                          <TabsTrigger value="all"      className="text-xs font-semibold px-3">All Status</TabsTrigger>
+                        </TabsList>
+                      </Tabs>
+                    </div>
+                  </div>
+
+                  {/* Row 2: Niche / City / Sort selects */}
+                  <div className="flex flex-wrap sm:flex-nowrap gap-3 pt-1 border-t border-border/50">
+                    {/* Niche */}
+                    <div className="space-y-1 w-full sm:w-44">
+                      <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider block">Niche</span>
+                      <Select value={nicheFilter} onValueChange={(v) => { setNicheFilter(v); setCurrentPage(1); }}>
+                        <SelectTrigger className="h-9 text-xs font-semibold">
+                          <SelectValue placeholder="All Niches" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="all">All Niches</SelectItem>
+                          <SelectItem value="clinic">Clinics &amp; Medical</SelectItem>
+                          <SelectItem value="real_estate">Real Estate</SelectItem>
+                          <SelectItem value="gym">Gyms &amp; Fitness</SelectItem>
+                          <SelectItem value="restaurant">Restaurants &amp; Food</SelectItem>
+                          <SelectItem value="consultant">Consultants &amp; Lawyers</SelectItem>
+                          <SelectItem value="education">Education &amp; Coaching</SelectItem>
+                          <SelectItem value="retail">Shops &amp; Retail</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+
+                    {/* City Tier */}
+                    <div className="space-y-1 w-full sm:w-44">
+                      <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider block">Location</span>
+                      <Select value={cityFilter} onValueChange={(v) => { setCityFilter(v); setCurrentPage(1); }}>
+                        <SelectTrigger className="h-9 text-xs font-semibold">
+                          <SelectValue placeholder="All Cities" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="all">All Cities</SelectItem>
+                          <SelectItem value="premium">Premium Zones (e.g. Bandra)</SelectItem>
+                          <SelectItem value="metro">Metro Cities</SelectItem>
+                          <SelectItem value="tier2">Tier-2 Cities</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+
+                    {/* Sort */}
+                    <div className="space-y-1 w-full sm:w-44">
+                      <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider block">Sort by</span>
+                      <Select value={sortBy} onValueChange={(v) => { setSortBy(v); setCurrentPage(1); }}>
+                        <SelectTrigger className="h-9 text-xs font-semibold">
+                          <SelectValue placeholder="Quality Score" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="final_score">Quality Score</SelectItem>
+                          <SelectItem value="priority_rank">Priority Rank</SelectItem>
+                          <SelectItem value="intent_score">Intent Signal</SelectItem>
+                          <SelectItem value="digital_gap_score">Digital Gap</SelectItem>
+                          <SelectItem value="deal_value">Deal Value</SelectItem>
+                          <SelectItem value="created_at">Date Acquired</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  </div>
+
+                  {/* Active filter summary */}
+                  {(tierFilter !== 'all' || nicheFilter !== 'all' || cityFilter !== 'all' || sortBy !== 'final_score' || intent !== 'high' || showAll) && (
+                    <div className="flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground pt-1 border-t border-border/50 animate-in slide-in-from-top-1 duration-150">
+                      <span className="font-semibold">Active:</span>
+                      {tierFilter !== 'all' && <Badge variant="secondary" className="text-[10px] font-bold px-2 py-0.5">Tier: {tierFilter.toUpperCase()}</Badge>}
+                      {intent !== 'high' && <Badge variant="secondary" className="text-[10px] font-bold px-2 py-0.5">Intent: {intent.toUpperCase()}</Badge>}
+                      {showAll && <Badge variant="secondary" className="text-[10px] font-bold px-2 py-0.5">Status: ALL</Badge>}
+                      {nicheFilter !== 'all' && <Badge variant="secondary" className="text-[10px] font-bold px-2 py-0.5">Niche: {nicheFilter.toUpperCase()}</Badge>}
+                      {cityFilter !== 'all' && <Badge variant="secondary" className="text-[10px] font-bold px-2 py-0.5">City: {cityFilter.toUpperCase()}</Badge>}
+                      {sortBy !== 'final_score' && <Badge variant="secondary" className="text-[10px] font-bold px-2 py-0.5 bg-primary/5 text-primary border-primary/10">Sort: {sortBy.replace(/_/g, ' ')}</Badge>}
+                      <span className="ml-1 font-semibold text-foreground">{sortedLeads.length} leads matching</span>
+                    </div>
+                  )}
+
+                  {/* Low-intent notice */}
+                  {intent === 'low' && (
+                    <p className="text-[11px] text-muted-foreground flex items-center gap-1.5">
+                      <span>ℹ️</span> Low intent prospects are automatically deleted after 7 days.
+                    </p>
+                  )}
+
+                  {/* Table */}
+                  <div className="-mx-4 sm:-mx-5 -mb-4 sm:-mb-5 border-t border-border/60">
+                    <LeadsTable
+                      leads={paginatedLeads}
+                      onMarkCalled={handleMarkCalled}
+                      isLoading={isLoadingLeads}
+                      callingId={callingId}
+                      currentPage={activePage}
+                      pageSize={pageSize}
+                      totalLeads={totalLeads}
+                      onPageChange={setCurrentPage}
+                      onPageSizeChange={setPageSize}
+                    />
+                  </div>
+
+                </CardContent>
               </Card>
             </>
           )}
@@ -1248,14 +1595,14 @@ export default function LeadGenDashboard() {
                 <div className="p-0">
                   <CRMLeadsTable
                     leads={paginatedCrmLeads}
-                    onUpdateLead={handleUpdateCRMLead}
-                    onOpenNotes={handleOpenLeadNotes}
+                    onUpdateLeadAction={handleUpdateCRMLead}
+                    onOpenNotesAction={handleOpenLeadNotes}
                     isLoading={isLoadingCrm}
                     currentPage={activeCrmPage}
                     pageSize={pageSize}
                     totalLeads={totalCrmLeads}
-                    onPageChange={setCurrentPage}
-                    onPageSizeChange={setPageSize}
+                    onPageChangeAction={setCurrentPage}
+                    onPageSizeChangeAction={setPageSize}
                   />
                 </div>
               </Card>
@@ -1298,13 +1645,15 @@ export default function LeadGenDashboard() {
                     </p>
                   </div>
                 ) : (
-                  <table className="w-full text-left border-collapse">
+                  <table className="w-full text-left border-collapse min-w-[900px]">
                     <thead>
                       <tr className="border-b border-border bg-muted/30 text-[10px] uppercase font-bold text-muted-foreground tracking-wider">
                         <th className="px-6 py-3.5">Query</th>
-                        <th className="px-6 py-3.5">Last Scrape Date</th>
+                        <th className="px-6 py-3.5 text-center">Live Prospects</th>
+                        <th className="px-6 py-3.5 text-center">🔥 Hot Leads</th>
+                        <th className="px-6 py-3.5 text-center">Avg Score</th>
                         <th className="px-6 py-3.5 text-center">Run Count</th>
-                        <th className="px-6 py-3.5 text-center">Lead Yield</th>
+                        <th className="px-6 py-3.5">Last Scrape Date</th>
                         <th className="px-6 py-3.5 text-right">Actions</th>
                       </tr>
                     </thead>
@@ -1314,19 +1663,41 @@ export default function LeadGenDashboard() {
                           <td className="px-6 py-4 font-bold text-foreground max-w-xs truncate">
                             {item.query}
                           </td>
-                          <td className="px-6 py-4 text-muted-foreground">
+                          <td className="px-6 py-4 text-center">
+                            <Badge variant="secondary" className="bg-primary/5 text-primary text-[10.5px] font-bold border-primary/10">
+                              {item.live_count ?? 0} active
+                            </Badge>
+                          </td>
+                          <td className="px-6 py-4 text-center">
+                            {(item.hot_count ?? 0) > 0 ? (
+                              <Badge className="bg-rose-500/10 text-rose-600 dark:text-rose-400 text-[10.5px] font-extrabold border-rose-500/20 flex items-center justify-center gap-1 mx-auto w-fit">
+                                <Flame className="w-3 h-3 text-rose-500 animate-pulse" /> {item.hot_count} hot
+                              </Badge>
+                            ) : (
+                              <span className="text-muted-foreground/45 font-mono text-[11px]">-</span>
+                            )}
+                          </td>
+                          <td className="px-6 py-4 text-center">
+                            {(item.avg_score ?? 0) > 0 ? (
+                              <Badge className={`text-[10.5px] font-bold mx-auto w-fit block ${
+                                (item.avg_score ?? 0) >= 70
+                                  ? 'bg-emerald-500/10 text-emerald-600 border-emerald-500/20'
+                                  : 'bg-amber-500/10 text-amber-600 border-amber-500/20'
+                              }`}>
+                                {item.avg_score} avg
+                              </Badge>
+                            ) : (
+                              <span className="text-muted-foreground/45 font-mono text-[11px]">-</span>
+                            )}
+                          </td>
+                          <td className="px-6 py-4 text-center font-bold text-muted-foreground">
+                            {item.run_count}
+                          </td>
+                          <td className="px-6 py-4 text-muted-foreground font-medium">
                             {new Date(item.last_run_at).toLocaleString('en-IN', {
                               dateStyle: 'medium',
                               timeStyle: 'short',
                             })}
-                          </td>
-                          <td className="px-6 py-4 text-center font-semibold text-muted-foreground">
-                            {item.run_count}
-                          </td>
-                          <td className="px-6 py-4 text-center">
-                            <Badge variant="secondary" className="bg-emerald-500/10 text-emerald-600 text-[10px] border-emerald-500/20">
-                              {item.last_stored} stored
-                            </Badge>
                           </td>
                           <td className="px-6 py-4 text-right space-x-2 whitespace-nowrap">
                             <Button
@@ -1386,148 +1757,157 @@ export default function LeadGenDashboard() {
 
         {/* CRM Lead Notes & Editor — Shadcn Sheet */}
         <Sheet open={!!selectedCRMLead} onOpenChange={(open) => { if (!open) setSelectedCRMLead(null); }}>
-          <SheetContent side="right" className={`${notesSidebarWide ? 'lg:max-w-2xl' : 'lg:max-w-md'} w-full max-w-full p-0 flex flex-col h-full overflow-x-hidden transition-all duration-300`}>
+          <SheetContent side="right" className={`${notesSidebarWide ? 'lg:max-w-4xl xl:max-w-5xl' : 'lg:max-w-xl'} w-full sm:max-w-lg md:max-w-xl p-0 flex flex-col h-full overflow-x-hidden transition-all duration-300`}>
             {/* Drawer Header */}
-            <SheetHeader className="px-6 py-5 pr-12 border-b border-border shrink-0 bg-muted/20 space-y-1 relative">
+            <SheetHeader className="px-4 py-4 sm:px-6 sm:py-5 pr-16 border-b border-border shrink-0 bg-muted/20 space-y-1 relative">
               <div className="flex items-center justify-between">
-                <div className="space-y-1">
-                  <Badge className="text-[10px] uppercase tracking-wider bg-primary/10 text-primary border-primary/20">
-                    Lead CRM Profile
-                  </Badge>
-                  <SheetTitle className="text-base font-bold truncate max-w-[240px] sm:max-w-md">
+                <div className="space-y-1.5 w-full">
+                  <div className="flex items-center gap-2">
+                    <Badge className="text-[10px] uppercase tracking-wider bg-primary/10 text-primary border-primary/20">
+                      Lead CRM Profile
+                    </Badge>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      onClick={() => setNotesSidebarWide(!notesSidebarWide)}
+                      className="h-7 w-7 hidden sm:flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-muted/80 rounded-md transition-colors"
+                      title={notesSidebarWide ? "Collapse notes panel" : "Expand notes panel"}
+                    >
+                      {notesSidebarWide ? <Minimize2 className="w-3.5 h-3.5" /> : <Maximize2 className="w-3.5 h-3.5" />}
+                    </Button>
+                  </div>
+                  <SheetTitle className="text-base font-bold truncate max-w-[220px] sm:max-w-md lg:max-w-lg">
                     {selectedCRMLead?.name}
                   </SheetTitle>
                 </div>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  onClick={() => setNotesSidebarWide(!notesSidebarWide)}
-                  className="h-11 w-11 hidden sm:flex items-center justify-center"
-                  title={notesSidebarWide ? "Collapse notes panel" : "Expand notes panel"}
-                >
-                  {notesSidebarWide ? <Minimize2 className="w-4 h-4" /> : <Maximize2 className="w-4 h-4" />}
-                </Button>
               </div>
             </SheetHeader>
             <SheetDescription className="sr-only">Edit lead CRM details, notes, and outreach.</SheetDescription>
 
             {/* Drawer Scrollable Content */}
-            <div className="flex-1 overflow-y-auto p-6 space-y-6">
-              {/* Contact Information (Enrichment) */}
-              <Card className="bg-muted/30 border-border/50">
-                <CardContent className="p-4 space-y-4">
-                  <span className="text-[10px] font-bold text-foreground uppercase tracking-wider block">
-                    Contact Channels
-                  </span>
-                  
-                  <div className="space-y-1">
-                    <label className="text-[11px] font-bold text-muted-foreground">Phone Number</label>
+            <div className={`flex-1 overflow-y-auto p-4 sm:p-6 ${notesSidebarWide ? 'lg:grid lg:grid-cols-2 lg:gap-6 lg:space-y-0' : 'space-y-6'}`}>
+              
+              {/* Left Column: Contact Enrichment & CRM Stats */}
+              <div className="space-y-6">
+                {/* Contact Information (Enrichment) */}
+                <Card className="bg-muted/30 border-border/50">
+                  <CardContent className="p-4 space-y-4">
+                    <span className="text-[10px] font-bold text-foreground uppercase tracking-wider block">
+                      Contact Channels
+                    </span>
+                    
+                    <div className="space-y-1">
+                      <label className="text-[11px] font-bold text-muted-foreground">Phone Number</label>
+                      <Input
+                        type="text"
+                        value={editorPhone}
+                        onChange={(e) => setEditorPhone(e.target.value)}
+                        className="h-11 lg:h-10 text-base lg:text-sm font-semibold"
+                        placeholder="e.g. 9876543210"
+                      />
+                    </div>
+
+                    <div className="space-y-1">
+                      <label className="text-[11px] font-bold text-muted-foreground">Email Address</label>
+                      <Input
+                        type="email"
+                        value={editorEmail}
+                        onChange={(e) => setEditorEmail(e.target.value)}
+                        className="h-11 lg:h-10 text-base lg:text-sm font-semibold"
+                        placeholder="owner@business.com"
+                      />
+                    </div>
+
+                    <div className="space-y-1">
+                      <label className="text-[11px] font-bold text-muted-foreground">Website URL</label>
+                      <Input
+                        type="text"
+                        value={editorWebsite}
+                        onChange={(e) => setEditorWebsite(e.target.value)}
+                        className="h-11 lg:h-10 text-base lg:text-sm font-semibold"
+                        placeholder="www.business.com"
+                      />
+                    </div>
+                  </CardContent>
+                </Card>
+
+                {/* Form fields */}
+                <div className="space-y-4">
+                  {/* Status Dropdown — Shadcn Select */}
+                  <div className="space-y-1.5">
+                    <label className="text-xs font-bold text-foreground">Pipeline Stage</label>
+                    <Select value={editorStatus} onValueChange={(v) => setEditorStatus(v as typeof editorStatus)}>
+                      <SelectTrigger className="h-11 lg:h-10 text-base lg:text-sm font-semibold">
+                        <SelectValue placeholder="Select status" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="no_answer">Attempted / No Answer</SelectItem>
+                        <SelectItem value="contacted">Spoke to Owner</SelectItem>
+                        <SelectItem value="meeting">Meeting Scheduled</SelectItem>
+                        <SelectItem value="won">Closed Won</SelectItem>
+                        <SelectItem value="lost">Closed Lost</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  {/* Deal Value */}
+                  <div className="space-y-1.5">
+                    <label className="text-xs font-bold text-foreground">Est. Deal Value ($)</label>
+                    <div className="relative">
+                      <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-xs font-bold text-muted-foreground">$</span>
+                      <Input
+                        type="number"
+                        value={editorValue}
+                        onChange={(e) => setEditorValue(Number(e.target.value) || 0)}
+                        className="h-11 lg:h-10 text-base lg:text-sm font-bold pl-7"
+                        placeholder="0"
+                      />
+                    </div>
+                  </div>
+
+                  {/* Follow-up Date */}
+                  <div className="space-y-1.5">
+                    <label className="text-xs font-bold text-foreground">Next Follow-up Date</label>
                     <Input
-                      type="text"
-                      value={editorPhone}
-                      onChange={(e) => setEditorPhone(e.target.value)}
-                      className="h-11 lg:h-9 text-xs font-semibold"
-                      placeholder="e.g. 9876543210"
+                      type="date"
+                      value={editorFollowUp}
+                      onChange={(e) => setEditorFollowUp(e.target.value)}
+                      className="h-11 lg:h-10 text-base lg:text-sm font-semibold"
                     />
                   </div>
 
-                  <div className="space-y-1">
-                    <label className="text-[11px] font-bold text-muted-foreground">Email Address</label>
-                    <Input
-                      type="email"
-                      value={editorEmail}
-                      onChange={(e) => setEditorEmail(e.target.value)}
-                      className="h-11 lg:h-9 text-xs font-semibold"
-                      placeholder="owner@business.com"
-                    />
-                  </div>
-
-                  <div className="space-y-1">
-                    <label className="text-[11px] font-bold text-muted-foreground">Website URL</label>
-                    <Input
-                      type="text"
-                      value={editorWebsite}
-                      onChange={(e) => setEditorWebsite(e.target.value)}
-                      className="h-11 lg:h-9 text-xs font-semibold"
-                      placeholder="www.business.com"
-                    />
-                  </div>
-                </CardContent>
-              </Card>
-
-              {/* Form fields */}
-              <div className="space-y-4">
-                {/* Status Dropdown — Shadcn Select */}
-                <div className="space-y-1.5">
-                  <label className="text-xs font-bold text-foreground">Pipeline Stage</label>
-                  <Select value={editorStatus} onValueChange={(v) => setEditorStatus(v as typeof editorStatus)}>
-                    <SelectTrigger className="h-11 lg:h-10 text-xs font-semibold">
-                      <SelectValue placeholder="Select status" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="no_answer">Attempted / No Answer</SelectItem>
-                      <SelectItem value="contacted">Spoke to Owner</SelectItem>
-                      <SelectItem value="meeting">Meeting Scheduled</SelectItem>
-                      <SelectItem value="won">Closed Won</SelectItem>
-                      <SelectItem value="lost">Closed Lost</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-
-                {/* Deal Value */}
-                <div className="space-y-1.5">
-                  <label className="text-xs font-bold text-foreground">Est. Deal Value ($)</label>
-                  <div className="relative">
-                    <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-xs font-bold text-muted-foreground">$</span>
-                    <Input
-                      type="number"
-                      value={editorValue}
-                      onChange={(e) => setEditorValue(Number(e.target.value) || 0)}
-                      className="h-11 lg:h-10 text-xs font-bold pl-7"
-                      placeholder="0"
+                  {/* CRM Notes */}
+                  <div className="space-y-1.5">
+                    <label className="text-xs font-bold text-foreground flex items-center gap-1">
+                      <Notebook className="w-3.5 h-3.5 text-muted-foreground" /> CRM Conversation Logs & Notes
+                    </label>
+                    <textarea
+                      value={editorNotes}
+                      onChange={(e) => setEditorNotes(e.target.value)}
+                      rows={5}
+                      className="w-full text-base lg:text-sm font-medium bg-background border border-input rounded-md p-3 focus:outline-none focus-visible:ring-2 focus-visible:ring-ring leading-relaxed"
+                      placeholder="Record call responses, specific requests, custom quote breakdowns..."
                     />
                   </div>
                 </div>
+              </div>
 
-                {/* Follow-up Date */}
-                <div className="space-y-1.5">
-                  <label className="text-xs font-bold text-foreground">Next Follow-up Date</label>
-                  <Input
-                    type="date"
-                    value={editorFollowUp}
-                    onChange={(e) => setEditorFollowUp(e.target.value)}
-                    className="h-11 lg:h-10 text-xs font-semibold"
-                  />
-                </div>
-
-                {/* CRM Notes */}
-                <div className="space-y-1.5">
-                  <label className="text-xs font-bold text-foreground flex items-center gap-1">
-                    <Notebook className="w-3.5 h-3.5 text-muted-foreground" /> CRM Conversation Logs & Notes
-                  </label>
-                  <textarea
-                    value={editorNotes}
-                    onChange={(e) => setEditorNotes(e.target.value)}
-                    rows={5}
-                    className="w-full text-xs font-medium bg-background border border-input rounded-md p-3 focus:outline-none focus-visible:ring-2 focus-visible:ring-ring leading-relaxed"
-                    placeholder="Record call responses, specific requests, custom quote breakdowns..."
-                  />
-                </div>
-
+              {/* Right Column: Outreach Assistant */}
+              <div className={`space-y-6 ${notesSidebarWide ? '' : 'pt-4 border-t border-border lg:pt-0 lg:border-t-0'}`}>
                 {/* OUTREACH CHANNELS PREVIEW & EXECUTION */}
-                <div className="space-y-4 pt-4 border-t border-border">
+                <div className="space-y-4">
                   <span className="text-[10px] font-bold text-foreground uppercase tracking-wider block">
                     Outreach Assistant
                   </span>
 
                   {/* Template Selector — Shadcn Select */}
                   <Card className="bg-muted/30 border-border/50">
-                    <CardContent className="p-3 space-y-1.5">
+                    <CardContent className="p-4 space-y-1.5">
                       <label className="text-[11px] font-bold text-muted-foreground uppercase tracking-wider block">
                         Pitch Strategy Template
                       </label>
                       <Select value={selectedTemplateKey} onValueChange={handleTemplateChange}>
-                        <SelectTrigger className="h-11 lg:h-8 text-xs font-semibold">
+                        <SelectTrigger className="h-11 lg:h-10 text-base lg:text-sm font-semibold">
                           <SelectValue placeholder="Select template" />
                         </SelectTrigger>
                         <SelectContent>
@@ -1541,15 +1921,15 @@ export default function LeadGenDashboard() {
 
                   {/* WhatsApp Template editor and Send/Copy Buttons */}
                   <Card className="bg-emerald-500/5 border-emerald-500/10">
-                    <CardContent className="p-3.5 space-y-2">
+                    <CardContent className="p-4 space-y-2.5">
                       <label className="text-[11px] font-bold text-emerald-600 dark:text-emerald-400 flex items-center gap-1">
                         <MessageCircle className="w-3.5 h-3.5" /> WhatsApp Message Pitch
                       </label>
                       <textarea
                         value={editorWAPitch}
                         onChange={(e) => setEditorWAPitch(e.target.value)}
-                        rows={3}
-                        className="w-full text-[11px] font-medium bg-background border border-input rounded-md p-2 focus:outline-none focus-visible:ring-2 focus-visible:ring-ring leading-normal"
+                        rows={4}
+                        className="w-full text-base lg:text-sm font-medium bg-background border border-input rounded-md p-3 focus:outline-none focus-visible:ring-2 focus-visible:ring-ring leading-relaxed"
                       />
                       <div className="flex gap-2">
                         <Button
@@ -1563,9 +1943,10 @@ export default function LeadGenDashboard() {
                             const url = `https://wa.me/91${cleanPhone}?text=${encodeURIComponent(editorWAPitch)}`;
                             window.open(url, '_blank');
                           }}
-                          className="flex-1 h-11 lg:h-9 text-[11px] font-bold bg-emerald-600 hover:bg-emerald-700 text-white"
+                          className="h-9 w-9 bg-emerald-600 hover:bg-emerald-700 text-white p-0 flex items-center justify-center rounded-lg"
+                          title="Send WhatsApp Message"
                         >
-                          <MessageCircle className="w-3.5 h-3.5 mr-1.5" /> Send WhatsApp
+                          <MessageCircle className="w-4 h-4" />
                         </Button>
                         <Button
                           type="button"
@@ -1575,10 +1956,11 @@ export default function LeadGenDashboard() {
                             setCopiedWA(true);
                             setTimeout(() => setCopiedWA(false), 2000);
                           }}
-                          className="h-11 lg:h-9 px-4 text-[11px] font-bold border-emerald-600/20 text-emerald-600 hover:bg-emerald-600/5"
+                          className="h-9 px-3 text-xs font-bold border-emerald-600/20 text-emerald-600 hover:bg-emerald-600/5 flex items-center gap-1.5 rounded-lg"
+                          title="Copy Message Text"
                         >
-                          <Copy className="w-3.5 h-3.5 mr-1" />
-                          {copiedWA ? 'Copied' : 'Copy'}
+                          {copiedWA ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
+                          <span>{copiedWA ? 'Copied' : 'Copy'}</span>
                         </Button>
                       </div>
                     </CardContent>
@@ -1586,7 +1968,7 @@ export default function LeadGenDashboard() {
 
                   {/* Email Template editor and Send/Copy Buttons */}
                   <Card className="bg-rose-500/5 border-rose-500/10">
-                    <CardContent className="p-3.5 space-y-2">
+                    <CardContent className="p-4 space-y-2.5">
                       <label className="text-[11px] font-bold text-rose-500 flex items-center gap-1">
                         <Mail className="w-3.5 h-3.5" /> Email Pitch Customizer
                       </label>
@@ -1594,14 +1976,14 @@ export default function LeadGenDashboard() {
                         type="text"
                         value={editorEmailSubject}
                         onChange={(e) => setEditorEmailSubject(e.target.value)}
-                        className="h-11 lg:h-8 text-[11px] font-bold"
+                        className="h-11 lg:h-10 text-base lg:text-sm font-bold"
                         placeholder="Email Subject"
                       />
                       <textarea
                         value={editorEmailBody}
                         onChange={(e) => setEditorEmailBody(e.target.value)}
-                        rows={4}
-                        className="w-full text-[11px] font-medium bg-background border border-input rounded-md p-2 focus:outline-none focus-visible:ring-2 focus-visible:ring-ring leading-normal"
+                        rows={5}
+                        className="w-full text-base lg:text-sm font-medium bg-background border border-input rounded-md p-3 focus:outline-none focus-visible:ring-2 focus-visible:ring-ring leading-relaxed"
                       />
                       <div className="flex gap-2">
                         <Button
@@ -1610,9 +1992,10 @@ export default function LeadGenDashboard() {
                             const url = `mailto:${editorEmail}?subject=${encodeURIComponent(editorEmailSubject)}&body=${encodeURIComponent(editorEmailBody)}`;
                             window.open(url);
                           }}
-                          className="flex-1 h-11 lg:h-9 text-[11px] font-bold bg-rose-500 hover:bg-rose-600 text-white"
+                          className="h-9 w-9 bg-rose-500 hover:bg-rose-600 text-white p-0 flex items-center justify-center rounded-lg"
+                          title="Send Email"
                         >
-                          <Mail className="w-3.5 h-3.5 mr-1.5" /> Send Email
+                          <Mail className="w-4 h-4" />
                         </Button>
                         <Button
                           type="button"
@@ -1623,10 +2006,11 @@ export default function LeadGenDashboard() {
                             setCopiedEmail(true);
                             setTimeout(() => setCopiedEmail(false), 2000);
                           }}
-                          className="h-11 lg:h-9 px-4 text-[11px] font-bold border-rose-500/20 text-rose-500 hover:bg-rose-500/5"
+                          className="h-9 px-3 text-xs font-bold border-rose-500/20 text-rose-500 hover:bg-rose-500/5 flex items-center gap-1.5 rounded-lg"
+                          title="Copy Email Text"
                         >
-                          <Copy className="w-3.5 h-3.5 mr-1" />
-                          {copiedEmail ? 'Copied' : 'Copy'}
+                          {copiedEmail ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
+                          <span>{copiedEmail ? 'Copied' : 'Copy'}</span>
                         </Button>
                       </div>
                     </CardContent>
@@ -1636,7 +2020,7 @@ export default function LeadGenDashboard() {
             </div>
 
             {/* Drawer Footer Actions */}
-            <div className="p-4 pb-safe-padded border-t border-border shrink-0 bg-muted/10 grid grid-cols-2 gap-3">
+            <div className="p-4 pb-[calc(1rem+env(safe-area-inset-bottom))] sm:pb-4 border-t border-border shrink-0 bg-muted/10 grid grid-cols-2 gap-3">
               <Button 
                 variant="outline" 
                 onClick={() => setSelectedCRMLead(null)}
