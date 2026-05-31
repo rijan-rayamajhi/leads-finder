@@ -21,6 +21,39 @@ export type Lead = {
   follow_up_at?: string | null;
   deal_value?: number;
   email?: string | null;
+
+  // Multi-dimensional scoring and analysis
+  revenue_score?: number;
+  contact_score?: number;
+  final_score?: number;
+  problems?: {
+    primary: string;
+    secondary: string[];
+    confidence: number;
+    digitalGapNorm?: number;
+    intentNorm?: number;
+    tier?: string;
+    hasPhotos?: boolean;
+    hasSevenDays?: boolean;
+  } | null;
+
+  // Refined revenue-driven fields
+  estimated_loss?: number;
+  recommended_service?: string;
+  outreach_context?: {
+    hook: string;
+    problem: string;
+    outcome: string;
+    service: string;
+  } | null;
+  priority_rank?: number;
+  conversion_probability?: number;
+  segment?: string[];
+
+  // Upgraded schema fields (Phase B5)
+  intent_score?:      number;
+  digital_gap_score?: number;
+  tier?:              'hot' | 'warm' | 'nurture' | 'cold';
 };
 
 export type RawBusiness = {
@@ -31,6 +64,14 @@ export type RawBusiness = {
   rating?: number | null;
   reviews?: number | null;
   maps_url?: string | null;
+  reviews_list?: Array<{ text: string; rating?: number }> | null;
+  business_status?: string;
+  types?: string[];
+  photos?: unknown[];
+  opening_hours?: {
+    weekday_text?: string[];
+    open_now?: boolean;
+  };
 };
 
 export type PipelineResult = {

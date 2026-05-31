@@ -5,4 +5,7 @@ export type SearchHistoryItem = {
   last_run_at: string;
   run_count: number;
   last_stored: number;
+  live_count?: number;
+  avg_score?: number;
+  hot_count?: number;
 };
