@@ -116,29 +116,71 @@ GOOGLE_PLACES_API_KEY=AIzaSy...
 Execute this script inside the **Supabase SQL Editor** to create the tables, indices, and constraints:
 
 ```sql
--- Create leads table
+-- Clean Fresh Start: Drop only the tables used by this project
+DROP TABLE IF EXISTS leads;
+DROP TABLE IF EXISTS search_history;
+
+-- Create leads table with all standard, CRM, and modern intelligence fields
 CREATE TABLE leads (
-  id          BIGSERIAL PRIMARY KEY,
-  name        TEXT NOT NULL,
-  phone       TEXT,
-  website     TEXT,
-  score       INT DEFAULT 0,
-  reason      TEXT,
-  source      TEXT,
-  called      BOOLEAN DEFAULT false,
-  called_at   TIMESTAMP DEFAULT NULL,
-  created_at  TIMESTAMP DEFAULT NOW(),
-  last_seen   TIMESTAMP DEFAULT NOW(),
-  notes       TEXT DEFAULT NULL,
-  deal_value  NUMERIC DEFAULT 0,
-  pipeline_stage TEXT DEFAULT 'Prospect', -- 'Prospect', 'Contacted', 'Proposal Sent', 'Won', 'Lost'
-  reminder_date TIMESTAMP DEFAULT NULL
+  id                      BIGSERIAL PRIMARY KEY,
+  name                    TEXT NOT NULL,
+  phone                   TEXT,
+  website                 TEXT,
+  score                   INT DEFAULT 0,
+  reason                  TEXT,
+  source                  TEXT,
+  called                  BOOLEAN DEFAULT false,
+  called_at               TIMESTAMP WITH TIME ZONE DEFAULT NULL,
+  created_at              TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+  last_seen               TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+  address                 TEXT DEFAULT NULL,
+  rating                  NUMERIC DEFAULT NULL,
+  reviews                 INT DEFAULT NULL,
+  maps_url                TEXT DEFAULT NULL,
+  
+  -- CRM Pipeline Fields
+  crm_status              TEXT DEFAULT NULL, -- 'no_answer', 'contacted', 'meeting', 'won', 'lost'
+  notes                   TEXT DEFAULT NULL,
+  follow_up_at            TIMESTAMP WITH TIME ZONE DEFAULT NULL,
+  deal_value              NUMERIC DEFAULT 0,
+  email                   TEXT DEFAULT NULL,
+  pipeline_stage          TEXT DEFAULT 'Prospect', -- For legacy/safety compatibility
+  reminder_date           TIMESTAMP WITH TIME ZONE DEFAULT NULL,
+
+  -- Revenue-Driven Intelligence & Multi-dimensional Scoring
+  revenue_score           INT DEFAULT 0,
+  contact_score           INT DEFAULT 0,
+  final_score             INT DEFAULT 0,
+  problems                JSONB DEFAULT NULL,
+  segment                 TEXT[] DEFAULT '{}',
+  estimated_loss          INT DEFAULT 0,
+  recommended_service     TEXT DEFAULT NULL,
+  outreach_context        JSONB DEFAULT NULL,
+  priority_rank           INT DEFAULT 0,
+  conversion_probability  INT DEFAULT 0
 );
 
--- Unique constraint on phone to prevent duplicates
+-- Create unique index on phone to prevent duplicates (only on non-null phone numbers)
 CREATE UNIQUE INDEX unique_phone_idx
 ON leads (phone)
 WHERE phone IS NOT NULL;
+
+-- Create high-performance indexes for leads table
+CREATE INDEX leads_score_idx ON leads (score DESC);
+CREATE INDEX leads_called_idx ON leads (called);
+CREATE INDEX leads_priority_rank_idx ON leads (priority_rank DESC);
+
+-- Create search_history table to track search runs
+CREATE TABLE search_history (
+  id            BIGSERIAL PRIMARY KEY,
+  query         TEXT UNIQUE NOT NULL,
+  last_run_at   TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+  run_count     INT DEFAULT 1,
+  last_stored   INT DEFAULT 0
+);
+
+-- Create performance index for search history
+CREATE INDEX search_history_last_run_idx ON search_history (last_run_at DESC);
 ```
 
 ---
