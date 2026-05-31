@@ -6,8 +6,9 @@ export async function GET(req: NextRequest) {
   try {
     const { searchParams } = new URL(req.url);
     const showAll = searchParams.get('showAll') === 'true';
-    const intent = searchParams.get('intent') || 'high'; // 'high' | 'low' | 'all'
+    const intent = searchParams.get('intent') || 'all'; // 'high' | 'low' | 'all'
     const calledParam = searchParams.get('called'); // 'true' | 'false' | null
+    const tierParam = searchParams.get('tier'); // 'hot' | 'warm' | 'nurture' | 'cold' | 'all' | null
 
     let query = supabase
       .from('leads')
@@ -29,6 +30,11 @@ export async function GET(req: NextRequest) {
       query = query.gt('score', 50);
     } else if (intent === 'low') {
       query = query.lte('score', 50);
+    }
+
+    // Tier filtering (Phase B4)
+    if (tierParam && tierParam !== 'all') {
+      query = query.eq('tier', tierParam);
     }
 
     // Limit to 200 for CRM view to allow seeing more called leads

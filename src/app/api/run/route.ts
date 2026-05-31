@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { scrapeBusinesses } from '@/lib/scraper';
-import { scoreLead } from '@/lib/scorer';
+import { scoreLead, isDisqualified } from '@/lib/scorer';
 import { normalizePhone, normalizeWebsite } from '@/lib/deduplicator';
 import { supabase } from '@/lib/supabase';
 import { PipelineResult } from '@/types/lead';
@@ -17,6 +17,8 @@ export async function POST(req: NextRequest) {
 
     const encoder = new TextEncoder();
 
+    const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
     const stream = new ReadableStream({
       async start(controller) {
         const sendEvent = (event: Record<string, unknown>) => {
@@ -24,20 +26,35 @@ export async function POST(req: NextRequest) {
         };
 
         try {
-          // Auto-delete leads older than 7 days
-          sendEvent({ status: 'progress', message: '🧹 Cleaning database (removing leads older than 7 days)...' });
+          // Auto-delete leads older than 7 days, restricting to uncalled leads only
+          sendEvent({ 
+            status: 'progress', 
+            progress: 5,
+            active_biz: 'Cleaning database entries older than 7 days...',
+            message: '🧹 Cleaning database (removing leads older than 7 days)...' 
+          });
+          await sleep(250); // Yield to flush stream buffer
+
           const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
           const { error: deleteErr } = await supabase
             .from('leads')
             .delete()
-            .lt('created_at', sevenDaysAgo);
+            .lt('created_at', sevenDaysAgo)
+            .eq('called', false);
 
           if (deleteErr) {
             console.error('Error performing auto-deletion of old leads:', deleteErr.message);
           }
 
           // Step 1: Scrape
-          sendEvent({ status: 'progress', message: `🔍 Searching Google Places for "${query.trim()}"...` });
+          sendEvent({ 
+            status: 'progress', 
+            progress: 15,
+            active_biz: `Searching Google Places for "${query.trim()}"...`,
+            message: `🔍 Searching Google Places for "${query.trim()}"...` 
+          });
+          await sleep(250); // Yield to flush stream buffer
+
           const businesses = await scrapeBusinesses(query);
           
           const result: PipelineResult = {
@@ -50,14 +67,28 @@ export async function POST(req: NextRequest) {
 
           sendEvent({ 
             status: 'progress', 
+            progress: 30,
+            active_biz: `Found ${businesses.length} candidates. Initiating web audits...`,
             message: `📋 Found ${businesses.length} business candidates. Checking phone numbers & duplicates...` 
           });
+          await sleep(250); // Yield to flush stream buffer
 
+          let currentIndex = 0;
+          const totalBiz = businesses.length;
           for (const biz of businesses) {
             try {
+              const progress = totalBiz > 0 ? Math.round(30 + ((currentIndex + 1) / totalBiz) * 70) : 30;
+              currentIndex++;
+
               // Step 2: Filter — skip if no phone
               if (!biz.phone) {
-                sendEvent({ status: 'progress', message: `⚠️ Skipping "${biz.name}": No phone number found.` });
+                sendEvent({ 
+                  status: 'progress', 
+                  progress,
+                  active_biz: biz.name,
+                  message: `⚠️ Skipping "${biz.name}": No phone number found.` 
+                });
+                await sleep(100); // Yield to prevent sequential batching of skipped elements
                 continue;
               }
               result.filtered++;
@@ -67,7 +98,13 @@ export async function POST(req: NextRequest) {
               const website = normalizeWebsite(biz.website);
 
               if (!phone) {
-                sendEvent({ status: 'progress', message: `⚠️ Skipping "${biz.name}": Invalid phone format.` });
+                sendEvent({ 
+                  status: 'progress', 
+                  progress,
+                  active_biz: biz.name,
+                  message: `⚠️ Skipping "${biz.name}": Invalid phone format.` 
+                });
+                await sleep(100); // Yield
                 continue;
               }
 
@@ -91,32 +128,72 @@ export async function POST(req: NextRequest) {
 
                 sendEvent({ 
                   status: 'progress', 
+                  progress,
+                  active_biz: biz.name,
                   message: `🔄 Updating "${biz.name}" (Duplicate lead; refreshed last_seen in database)...` 
                 });
+                await sleep(100); // Yield to prevent sequential batching of skipped elements
                 result.skipped_dedup++;
+                continue;
+              }
+
+              // Step 4.5: Disqualifier Check
+              const leadData = {
+                name: biz.name,
+                phone: biz.phone,
+                website: biz.website || undefined,
+                address: biz.address || undefined,
+                rating: biz.rating || undefined,
+                reviews: biz.reviews || undefined,
+                query: query,
+                reviewsList: biz.reviews_list ? biz.reviews_list.map((r: { text?: string; author_name?: string }) => ({ text: r.text || '', author_name: r.author_name || '' })) : undefined,
+                business_status: biz.business_status,
+                types: biz.types,
+                photos: biz.photos,
+                opening_hours: biz.opening_hours || undefined,
+              };
+
+              const dqCheck = isDisqualified(leadData);
+              if (dqCheck.disqualified) {
+                sendEvent({
+                  status: 'progress',
+                  progress,
+                  active_biz: biz.name,
+                  type: 'log',
+                  message: `⏭ Skipped ${leadData.name} — ${dqCheck.reason}`
+                });
+                await sleep(100); // Yield to prevent sequential batching of skipped elements
                 continue;
               }
 
               // Step 5: Score
               sendEvent({ 
                 status: 'progress', 
+                progress,
+                active_biz: biz.name,
                 message: `🧠 Auditing web presence for "${biz.name}" (Website: ${biz.website || 'None'})...` 
               });
-              const { score, reason } = await scoreLead(website);
+              const scoring = await scoreLead(website, leadData);
 
-              // Step 6: Track if score too low
-              if (score <= 50) {
+              // Step 6: Track if score too low (Store ONLY if (opportunityScore >= 40 AND revenueScore >= 30) OR (revenueScore >= 50 AND problems.primary !== 'none'))
+              const meetsStandardFilter = scoring.opportunityScore >= 40 && scoring.revenueScore >= 30;
+              const meetsHighRevenueFilter = scoring.revenueScore >= 50 && scoring.problems?.primary && scoring.problems.primary !== 'none';
+
+              if (!meetsStandardFilter && !meetsHighRevenueFilter) {
                 sendEvent({ 
                   status: 'progress', 
-                  message: `📉 Skipping "${biz.name}" (Score too low: ${score} - ${reason}).` 
+                  progress,
+                  active_biz: biz.name,
+                  message: `📉 Skipping "${biz.name}" (Opportunity: ${scoring.opportunityScore}/40, Revenue: ${scoring.revenueScore}/30, Primary Problem: ${scoring.problems?.primary}).` 
                 });
+                await sleep(100); // Yield to prevent sequential batching of skipped elements
                 result.skipped_score++;
                 continue;
               }
 
               // Pack audit text and Google Places metadata into a single JSON in the reason column
               const packedReason = JSON.stringify({
-                text: reason,
+                text: scoring.problems.list.join(', '),
                 address: biz.address || null,
                 rating: biz.rating || null,
                 reviews: biz.reviews || null,
@@ -126,7 +203,9 @@ export async function POST(req: NextRequest) {
               // Step 7: Store
               sendEvent({ 
                 status: 'progress', 
-                message: `💾 Storing hot prospect "${biz.name}" in database (Score: ${score})...` 
+                progress,
+                active_biz: biz.name,
+                message: `💾 Storing hot prospect "${biz.name}" in database (Score: ${scoring.finalScore})...` 
               });
               const { error: insertErr } = await supabase
                 .from('leads')
@@ -134,17 +213,50 @@ export async function POST(req: NextRequest) {
                   name: biz.name,
                   phone,
                   website,
-                  score,
+                  score: scoring.finalScore,
                   reason: packedReason,
                   source: query,
                   called: false,
                   called_at: null,
                   last_seen: new Date().toISOString(),
+                  revenue_score: scoring.revenueScore,
+                  contact_score: scoring.contactScore,
+                  final_score: scoring.finalScore,
+                  segment: scoring.segment,
+                  estimated_loss: scoring.estimated_loss,
+                  recommended_service: scoring.recommended_service,
+                  outreach_context: scoring.outreach_context,
+                  priority_rank: scoring.priority_rank,
+                  conversion_probability: scoring.conversion_probability,
+                  
+                  // Upgraded Scoring & Tier Columns (Phase B3)
+                  intent_score:      scoring.intentScore ?? 0,
+                  digital_gap_score: scoring.digitalGapNorm ?? 0,
+                  tier:              scoring.tier ?? 'cold',
+                  
+                  // Store email if extracted by analyzer
+                  ...(scoring.extractedEmail && { 
+                    email: scoring.extractedEmail 
+                  }),
+                  
+                  // Store digital gap norm inside existing problems JSONB
+                  problems: {
+                    ...scoring.problems,
+                    intentNorm:    scoring.intentNorm,
+                    digitalGapNorm: scoring.digitalGapNorm,
+                    hasPhotos:     (biz.photos?.length ?? 0) > 0,
+                    hasSevenDays:  biz.opening_hours?.weekday_text?.length === 7
+                  }
                 });
 
               if (insertErr) {
                 console.error(`Supabase upsert error for lead ${biz.name}:`, insertErr.message);
-                sendEvent({ status: 'progress', message: `❌ Database insert failed for "${biz.name}".` });
+                sendEvent({ 
+                  status: 'progress', 
+                  progress,
+                  active_biz: biz.name,
+                  message: `❌ Database insert failed for "${biz.name}".` 
+                });
                 continue;
               }
 

@@ -4,16 +4,52 @@ import { supabase } from '@/lib/supabase';
 // GET — fetch search query history, most recently run first
 export async function GET() {
   try {
-    const { data, error } = await supabase
+    const { data: history, error: historyErr } = await supabase
       .from('search_history')
       .select('*')
       .order('last_run_at', { ascending: false });
 
-    if (error) {
-      return NextResponse.json({ error: error.message }, { status: 500 });
+    if (historyErr) {
+      return NextResponse.json({ error: historyErr.message }, { status: 500 });
     }
 
-    return NextResponse.json(data || []);
+    // Fetch all leads to group by source and calculate statistics on-the-fly
+    const { data: leads, error: leadsErr } = await supabase
+      .from('leads')
+      .select('source, score, tier');
+
+    if (leadsErr) {
+      console.error('Failed to fetch leads for history stats:', leadsErr.message);
+      return NextResponse.json(history || []);
+    }
+
+    const statsMap: Record<string, { count: number; totalScore: number; hotCount: number }> = {};
+    if (leads) {
+      for (const lead of leads) {
+        const src = (lead.source || '').trim().toLowerCase();
+        if (!statsMap[src]) {
+          statsMap[src] = { count: 0, totalScore: 0, hotCount: 0 };
+        }
+        statsMap[src].count++;
+        statsMap[src].totalScore += lead.score || 0;
+        if (lead.tier === 'hot') {
+          statsMap[src].hotCount++;
+        }
+      }
+    }
+
+    const enrichedHistory = (history || []).map((item) => {
+      const srcKey = (item.query || '').trim().toLowerCase();
+      const stats = statsMap[srcKey] || { count: 0, totalScore: 0, hotCount: 0 };
+      return {
+        ...item,
+        live_count: stats.count,
+        avg_score: stats.count > 0 ? Math.round(stats.totalScore / stats.count) : 0,
+        hot_count: stats.hotCount,
+      };
+    });
+
+    return NextResponse.json(enrichedHistory);
   } catch (err: unknown) {
     const error = err as Error;
     console.error('History GET error:', error);
