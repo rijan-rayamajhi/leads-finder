@@ -73,8 +73,9 @@ export default function LandingPage() {
           {/* CTA Buttons */}
           <div className="flex items-center gap-3">
             <Link href="/dashboard">
-              <Button size="sm" className="text-xs font-bold px-4 h-9 shadow-lg shadow-primary/20 hover:scale-[1.02] active:scale-[0.98] transition-all">
-                Launch App Dashboard <ArrowRight className="w-3.5 h-3.5 ml-1.5" />
+              <Button size="sm" className="text-xs font-bold px-3 sm:px-4 h-9 shadow-lg shadow-primary/20 hover:scale-[1.02] active:scale-[0.98] transition-all">
+                <span className="hidden sm:inline">Launch App Dashboard</span>
+                <span className="sm:hidden">Launch App</span> <ArrowRight className="w-3.5 h-3.5 ml-1.5" />
               </Button>
             </Link>
           </div>
@@ -113,17 +114,17 @@ export default function LandingPage() {
           </div>
           
           {/* Factual System Status Indicators */}
-          <div className="flex items-center justify-center gap-6 text-muted-foreground text-xs font-semibold pt-8">
+          <div className="flex flex-col sm:flex-row items-center justify-center gap-4 sm:gap-6 text-muted-foreground text-xs font-semibold pt-8">
             <div className="flex items-center gap-1.5">
-              <CheckCircle2 className="w-4 h-4 text-emerald-500" />
+              <CheckCircle2 className="w-4 h-4 text-emerald-500 shrink-0" />
               <span>Scraper Engine Active</span>
             </div>
             <div className="flex items-center gap-1.5">
-              <CheckCircle2 className="w-4 h-4 text-emerald-500" />
+              <CheckCircle2 className="w-4 h-4 text-emerald-500 shrink-0" />
               <span>Headless Audit Nodes Operational</span>
             </div>
             <div className="flex items-center gap-1.5">
-              <CheckCircle2 className="w-4 h-4 text-emerald-500" />
+              <CheckCircle2 className="w-4 h-4 text-emerald-500 shrink-0" />
               <span>CRM Database Connected</span>
             </div>
           </div>
