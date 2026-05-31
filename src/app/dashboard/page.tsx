@@ -722,7 +722,7 @@ export default function LeadGenDashboard() {
         <Link href="/" className={`h-16 border-b border-border flex items-center shrink-0 bg-card transition-all duration-300 hover:bg-muted/30 ${
           leftSidebarCollapsed ? 'px-4 justify-center' : 'px-6 gap-2.5'
         }`}>
-          <Image src="/logo.png" alt="Leads Finder" width={28} height={28} className="w-7 h-7 rounded-lg object-contain shadow-sm border border-border/50" />
+          <Image src="/logo.svg" alt="Leads Finder" width={28} height={28} className="w-7 h-7 rounded-lg object-contain shadow-sm border border-border/50" />
           {!leftSidebarCollapsed && <span className="text-sm font-bold text-foreground tracking-tight">Leads Finder</span>}
         </Link>
         
@@ -805,7 +805,7 @@ export default function LeadGenDashboard() {
         <SheetContent side="left" className="w-64 p-0">
           <SheetHeader className="h-16 border-b border-border flex flex-row items-center gap-2.5 px-6 space-y-0">
             <Link href="/" className="flex items-center gap-2.5 hover:opacity-80" onClick={() => setMobileMenuOpen(false)}>
-              <Image src="/logo.png" alt="Leads Finder" width={28} height={28} className="w-7 h-7 rounded-lg object-contain shadow-sm border border-border/50" />
+              <Image src="/logo.svg" alt="Leads Finder" width={28} height={28} className="w-7 h-7 rounded-lg object-contain shadow-sm border border-border/50" />
               <SheetTitle className="text-sm font-bold tracking-tight">Leads Finder</SheetTitle>
             </Link>
           </SheetHeader>
@@ -885,7 +885,7 @@ export default function LeadGenDashboard() {
               </Button>
               <div className="flex items-center gap-2.5">
                 <Link href="/" className="flex items-center gap-2 lg:hidden hover:opacity-80">
-                  <Image src="/logo.png" alt="Leads Finder" width={24} height={24} className="w-6 h-6 rounded-md object-contain shadow-sm border border-border/50" />
+                  <Image src="/logo.svg" alt="Leads Finder" width={24} height={24} className="w-6 h-6 rounded-md object-contain shadow-sm border border-border/50" />
                 </Link>
                 <h1 className="text-sm font-bold text-foreground leading-none">
                   {activeTab === 'prospects' ? 'Prospects' : activeTab === 'crm' ? 'CRM Dashboard' : 'Search History'}

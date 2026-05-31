@@ -56,7 +56,7 @@ export default function LandingPage() {
       <header className="border-b border-border/60 bg-background/70 backdrop-blur-md sticky top-0 z-50 transition-all">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
           <Link href="/" className="flex items-center gap-2.5 hover:opacity-95 transition-opacity">
-            <Image src="/logo.png" alt="Leads Finder Logo" width={32} height={32} className="w-8 h-8 rounded-lg object-contain shadow-md border border-border/50" />
+            <Image src="/logo.svg" alt="Leads Finder Logo" width={32} height={32} className="w-8 h-8 rounded-lg object-contain shadow-md border border-border/50" />
             <span className="text-base font-extrabold tracking-tight bg-clip-text text-transparent bg-gradient-to-r from-foreground to-foreground/80">
               Leads Finder
             </span>
@@ -303,7 +303,7 @@ export default function LandingPage() {
       <footer className="border-t border-border/60 bg-muted/20 py-10 relative">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 text-center space-y-6">
           <Link href="/" className="inline-flex items-center gap-2 justify-center hover:opacity-95 transition-all">
-            <Image src="/logo.png" alt="Leads Finder Logo" width={28} height={28} className="w-7 h-7 rounded-lg object-contain border border-border/50" />
+            <Image src="/logo.svg" alt="Leads Finder Logo" width={28} height={28} className="w-7 h-7 rounded-lg object-contain border border-border/50" />
             <span className="text-sm font-extrabold tracking-tight text-foreground">
               Leads Finder
             </span>
