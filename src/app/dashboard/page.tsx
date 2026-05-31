@@ -737,14 +737,7 @@ export default function LeadGenDashboard() {
               </div>
             </div>
             
-            {/* Landing page quick navigate link */}
-            <div>
-              <Link href="/">
-                <Button variant="outline" size="sm" className="text-xs font-semibold h-8">
-                  Back to Landing Page
-                </Button>
-              </Link>
-            </div>
+            
           </div>
         </header>
 
