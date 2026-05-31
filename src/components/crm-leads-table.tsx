@@ -253,10 +253,32 @@ export function CRMLeadsTable({
 
   if (isLoading) {
     return (
-      <div className="p-6 space-y-4">
-        {[1, 2, 3].map((i) => (
-          <div key={i} className="h-16 bg-muted rounded-xl animate-pulse" />
-        ))}
+      <div>
+        {/* Mobile & Tablet Loading Card Grid */}
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:hidden gap-4 p-4">
+          {[1, 2, 3].map((i) => (
+            <Card key={i} className="p-5 animate-pulse space-y-4">
+              <CardContent className="p-0 space-y-4">
+                <div className="flex justify-between items-start">
+                  <div className="h-5 bg-muted rounded w-2/3" />
+                  <div className="h-6 bg-muted rounded-full w-12" />
+                </div>
+                <div className="space-y-2">
+                  <div className="h-4 bg-muted rounded w-1/2" />
+                  <div className="h-4 bg-muted rounded w-3/4" />
+                </div>
+                <div className="h-9 bg-muted rounded w-full" />
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+
+        {/* Desktop Loading Skeleton */}
+        <div className="hidden lg:block p-6 space-y-4">
+          {[1, 2, 3].map((i) => (
+            <div key={i} className="h-16 bg-muted rounded-xl animate-pulse" />
+          ))}
+        </div>
       </div>
     );
   }
@@ -345,8 +367,8 @@ export function CRMLeadsTable({
 
   return (
     <div>
-      {/* Mobile Card Layout */}
-      <div className="grid grid-cols-1 gap-4 p-4 md:hidden">
+      {/* Mobile & Tablet Card Layout */}
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:hidden gap-4 p-4">
         {leads.map((lead, index) => {
           const meta = parseLeadReason(lead.reason);
           const outreach = getOutreachLinks(lead);
@@ -392,7 +414,7 @@ export function CRMLeadsTable({
                       value={lead.crm_status || 'no_answer'} 
                       onValueChange={(v) => onUpdateLead(lead.id, { crm_status: v as Lead['crm_status'] })}
                     >
-                      <SelectTrigger className="h-8 text-xs font-semibold">
+                      <SelectTrigger className="h-11 lg:h-8 text-xs font-semibold">
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
@@ -411,7 +433,7 @@ export function CRMLeadsTable({
                         type="number"
                         value={lead.deal_value || 0}
                         onChange={(e) => onUpdateLead(lead.id, { deal_value: Number(e.target.value) || 0 })}
-                        className="w-full h-8 text-xs font-bold pl-5 pr-2 bg-background border border-input rounded-md focus-visible:ring-2 focus-visible:ring-ring"
+                        className="w-full h-11 lg:h-8 text-xs font-bold pl-5 pr-2 bg-background border border-input rounded-md focus-visible:ring-2 focus-visible:ring-ring"
                         placeholder="0"
                       />
                     </div>
@@ -441,7 +463,7 @@ export function CRMLeadsTable({
                 <Button
                   variant="outline"
                   onClick={() => toggleRow(lead.id)}
-                  className="w-full text-xs font-bold bg-primary/5 hover:bg-primary/10 border-primary/10 text-primary"
+                  className="w-full h-11 text-xs font-bold bg-primary/5 hover:bg-primary/10 border-primary/10 text-primary flex items-center justify-between px-4"
                 >
                   <span>{isExpanded ? 'Hide Audit Report' : 'Inspect Audit Report'}</span>
                   {isExpanded ? (
@@ -465,7 +487,7 @@ export function CRMLeadsTable({
                     )}
 
                     {meta.maps_url && (
-                      <Button variant="outline" asChild className="w-full text-xs font-bold border-rose-500/20 text-rose-500 bg-rose-500/5 hover:bg-rose-500/10">
+                      <Button variant="outline" asChild className="w-full h-11 text-xs font-bold border-rose-500/20 text-rose-500 bg-rose-500/5 hover:bg-rose-500/10 flex items-center justify-center">
                         <a href={meta.maps_url} target="_blank" rel="noopener noreferrer">
                           <ExternalLink className="w-4 h-4 mr-1.5" />
                           View Google Maps Listing
@@ -477,21 +499,21 @@ export function CRMLeadsTable({
 
                 {/* Action Buttons */}
                 <div className="grid grid-cols-4 gap-2 pt-2 border-t border-border/50">
-                  <Button variant="outline" size="icon" asChild className="h-9 text-primary">
-                    <a href={outreach.tel}><Phone className="w-4 h-4" /></a>
+                  <Button variant="outline" size="icon" asChild className="h-11 w-full lg:h-9 lg:w-9 text-primary">
+                    <a href={outreach.tel} className="flex items-center justify-center"><Phone className="w-4 h-4" /></a>
                   </Button>
-                  <Button variant="outline" size="icon" asChild className="h-9 text-emerald-600">
-                    <a href={outreach.wa} target="_blank" rel="noopener noreferrer"><MessageCircle className="w-4 h-4" /></a>
+                  <Button variant="outline" size="icon" asChild className="h-11 w-full lg:h-9 lg:w-9 text-emerald-600">
+                    <a href={outreach.wa} target="_blank" rel="noopener noreferrer" className="flex items-center justify-center"><MessageCircle className="w-4 h-4" /></a>
                   </Button>
-                  <Button variant="outline" size="icon" asChild className="h-9 text-rose-500">
-                    <a href={outreach.mail}><Mail className="w-4 h-4" /></a>
+                  <Button variant="outline" size="icon" asChild className="h-11 w-full lg:h-9 lg:w-9 text-rose-500">
+                    <a href={outreach.mail} className="flex items-center justify-center"><Mail className="w-4 h-4" /></a>
                   </Button>
                   <Button 
                     variant="outline"
                     onClick={() => onOpenNotes(lead)} 
-                    className="h-9 w-full text-xs font-bold gap-1 bg-primary/5 hover:bg-primary/10 border-primary/20 text-primary"
+                    className="h-11 w-full lg:h-9 text-xs font-bold gap-1 bg-primary/5 hover:bg-primary/10 border-primary/20 text-primary flex items-center justify-center px-1.5"
                   >
-                    <Notebook className="w-3.5 h-3.5" /> Notes
+                    <Notebook className="w-3.5 h-3.5" /> <span className="hidden sm:inline">Notes</span><span className="sm:hidden">Note</span>
                   </Button>
                 </div>
 
@@ -501,7 +523,7 @@ export function CRMLeadsTable({
                     setRevertLeadId(lead.id);
                     setRevertDialogOpen(true);
                   }}
-                  className="w-full text-center text-[10px] font-bold text-muted-foreground hover:text-destructive transition-colors flex items-center justify-center gap-1 py-1"
+                  className="w-full text-center text-[11px] font-bold text-muted-foreground hover:text-destructive transition-colors flex items-center justify-center gap-1 py-3 mt-1.5"
                 >
                   <RefreshCw className="w-3 h-3" /> Revert back to Prospects
                 </button>
@@ -512,7 +534,7 @@ export function CRMLeadsTable({
       </div>
 
       {/* Desktop Table View */}
-      <div className="hidden md:block">
+      <div className="hidden lg:block w-full">
         <Table>
           <TableHeader>
             <TableRow>
@@ -807,7 +829,7 @@ export function CRMLeadsTable({
                 <button
                   key={size}
                   onClick={() => onPageSizeChange(size)}
-                  className={`px-2.5 py-1 text-[11px] font-bold rounded-md transition-all ${
+                  className={`px-3 py-2 lg:px-2.5 lg:py-1 text-[11px] font-bold rounded-md transition-all ${
                     pageSize === size
                       ? 'bg-background text-foreground shadow-sm'
                       : 'text-muted-foreground hover:text-foreground'
@@ -820,10 +842,10 @@ export function CRMLeadsTable({
           </div>
 
           <div className="flex items-center gap-1.5">
-            <Button variant="outline" size="icon" className="h-8 w-8" onClick={() => onPageChange(1)} disabled={currentPage === 1}>
+            <Button variant="outline" size="icon" className="h-11 w-11 lg:h-8 lg:w-8 p-0 flex items-center justify-center" onClick={() => onPageChange(1)} disabled={currentPage === 1}>
               <ChevronsLeft className="h-4 w-4" />
             </Button>
-            <Button variant="outline" size="icon" className="h-8 w-8" onClick={() => onPageChange(currentPage - 1)} disabled={currentPage === 1}>
+            <Button variant="outline" size="icon" className="h-11 w-11 lg:h-8 lg:w-8 p-0 flex items-center justify-center" onClick={() => onPageChange(currentPage - 1)} disabled={currentPage === 1}>
               <ChevronLeft className="h-4 w-4" />
             </Button>
 
@@ -835,7 +857,7 @@ export function CRMLeadsTable({
                     variant={currentPage === p ? 'default' : 'outline'}
                     size="sm"
                     onClick={() => onPageChange(p)}
-                    className="h-8 min-w-[32px] px-2 text-xs font-bold"
+                    className="h-11 min-w-[44px] lg:h-8 lg:min-w-[32px] px-2 text-xs font-bold"
                   >
                     {p}
                   </Button>
@@ -851,10 +873,10 @@ export function CRMLeadsTable({
               Page {currentPage} of {totalPages}
             </span>
 
-            <Button variant="outline" size="icon" className="h-8 w-8" onClick={() => onPageChange(currentPage + 1)} disabled={currentPage === totalPages}>
+            <Button variant="outline" size="icon" className="h-11 w-11 lg:h-8 lg:w-8 p-0 flex items-center justify-center" onClick={() => onPageChange(currentPage + 1)} disabled={currentPage === totalPages}>
               <ChevronRight className="h-4 w-4" />
             </Button>
-            <Button variant="outline" size="icon" className="h-8 w-8" onClick={() => onPageChange(totalPages)} disabled={currentPage === totalPages}>
+            <Button variant="outline" size="icon" className="h-11 w-11 lg:h-8 lg:w-8 p-0 flex items-center justify-center" onClick={() => onPageChange(totalPages)} disabled={currentPage === totalPages}>
               <ChevronsRight className="h-4 w-4" />
             </Button>
           </div>

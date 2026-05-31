@@ -255,8 +255,8 @@ export function LeadsTable({
   if (isLoading) {
     return (
       <div>
-        {/* Mobile Skeleton */}
-        <div className="grid grid-cols-1 gap-4 p-4 md:hidden">
+        {/* Mobile & Tablet Skeleton */}
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:hidden gap-4 p-4">
           {[1, 2, 3].map((i) => (
             <Card key={i} className="p-5 animate-pulse space-y-4">
               <CardContent className="p-0 space-y-4">
@@ -276,7 +276,7 @@ export function LeadsTable({
         </div>
 
         {/* Desktop Skeleton */}
-        <div className="hidden md:block">
+        <div className="hidden lg:block">
           <Table>
             <TableHeader>
               <TableRow>
@@ -361,8 +361,8 @@ export function LeadsTable({
 
   return (
     <div>
-      {/* Mobile Card Grid */}
-      <div className="grid grid-cols-1 gap-4 p-4 md:hidden">
+      {/* Mobile & Tablet Card Grid */}
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:hidden gap-4 p-4">
         {leads.map((lead, index) => {
           const meta = parseLeadReason(lead.reason);
           const isExpanded = expandedRowId === lead.id;
@@ -431,17 +431,17 @@ export function LeadsTable({
                   {/* Source badge */}
                   <div className="flex items-center gap-2 pt-0.5">
                     <Search className="w-4 h-4 text-muted-foreground shrink-0" />
-                    <Badge variant="secondary" className="text-[10px] font-semibold">
+                    <Badge variant="secondary" className="text-[10px] font-semibold whitespace-nowrap">
                       {lead.source || 'Manual'}
                     </Badge>
                   </div>
                 </div>
 
-                {/* View Audit Report Action toggle */}
+                 {/* View Audit Report Action toggle */}
                 <Button
                   variant="outline"
                   onClick={() => toggleRow(lead.id)}
-                  className="w-full text-xs font-bold bg-primary/5 hover:bg-primary/10 border-primary/10 text-primary"
+                  className="w-full h-11 text-xs font-bold bg-primary/5 hover:bg-primary/10 border-primary/10 text-primary flex items-center justify-between px-4"
                 >
                   <span>{isExpanded ? 'Hide Detailed Audit' : 'Inspect Audit Report'}</span>
                   {isExpanded ? (
@@ -467,7 +467,7 @@ export function LeadsTable({
 
                     {/* Google Maps Profile link */}
                     {meta.maps_url && (
-                      <Button variant="outline" asChild className="w-full text-xs font-bold border-rose-500/20 text-rose-500 bg-rose-500/5 hover:bg-rose-500/10">
+                      <Button variant="outline" asChild className="w-full h-11 text-xs font-bold border-rose-500/20 text-rose-500 bg-rose-500/5 hover:bg-rose-500/10 flex items-center justify-center">
                         <a href={meta.maps_url} target="_blank" rel="noopener noreferrer">
                           <ExternalLink className="w-4 h-4 mr-1.5" />
                           View Google Maps Listing
@@ -480,7 +480,7 @@ export function LeadsTable({
                 <Button
                   variant="default"
                   size="sm"
-                  className="w-full text-xs font-bold h-10 flex items-center justify-center gap-1.5 shadow-sm transition-all animate-none"
+                  className="w-full text-xs font-bold h-11 flex items-center justify-center gap-1.5 shadow-sm transition-all animate-none"
                   onClick={() => onMarkCalled(lead.id)}
                   disabled={callingId === lead.id}
                 >
@@ -498,7 +498,7 @@ export function LeadsTable({
       </div>
 
       {/* Desktop Table View */}
-      <div className="hidden md:block">
+      <div className="hidden lg:block w-full">
         <Table>
           <TableHeader>
             <TableRow>
@@ -613,7 +613,7 @@ export function LeadsTable({
                       {meta.text}
                     </TableCell>
                     <TableCell className="py-4">
-                      <Badge variant="secondary" className="text-[10px] font-semibold">
+                      <Badge variant="secondary" className="text-[10px] font-semibold whitespace-nowrap">
                         {lead.source || 'Manual'}
                       </Badge>
                     </TableCell>
@@ -729,7 +729,7 @@ export function LeadsTable({
                 <button
                   key={size}
                   onClick={() => onPageSizeChange(size)}
-                  className={`px-2.5 py-1 text-[11px] font-bold rounded-md transition-all ${
+                  className={`px-3 py-2 lg:px-2.5 lg:py-1 text-[11px] font-bold rounded-md transition-all ${
                     pageSize === size
                       ? 'bg-background text-foreground shadow-sm'
                       : 'text-muted-foreground hover:text-foreground'
@@ -746,7 +746,7 @@ export function LeadsTable({
             <Button
               variant="outline"
               size="icon"
-              className="h-8 w-8 p-0"
+              className="h-11 w-11 lg:h-8 lg:w-8 p-0 flex items-center justify-center"
               onClick={() => onPageChange(1)}
               disabled={currentPage === 1}
               title="First Page"
@@ -756,7 +756,7 @@ export function LeadsTable({
             <Button
               variant="outline"
               size="icon"
-              className="h-8 w-8 p-0"
+              className="h-11 w-11 lg:h-8 lg:w-8 p-0 flex items-center justify-center"
               onClick={() => onPageChange(currentPage - 1)}
               disabled={currentPage === 1}
               title="Previous Page"
@@ -771,7 +771,7 @@ export function LeadsTable({
                   <Button
                     key={idx}
                     variant={currentPage === p ? "default" : "outline"}
-                    className="h-8 min-w-[32px] px-2 text-xs font-bold"
+                    className="h-11 min-w-[44px] lg:h-8 lg:min-w-[32px] px-2 text-xs font-bold"
                     onClick={() => onPageChange(p)}
                   >
                     {p}
@@ -792,7 +792,7 @@ export function LeadsTable({
             <Button
               variant="outline"
               size="icon"
-              className="h-8 w-8 p-0"
+              className="h-11 w-11 lg:h-8 lg:w-8 p-0 flex items-center justify-center"
               onClick={() => onPageChange(currentPage + 1)}
               disabled={currentPage === totalPages}
               title="Next Page"
@@ -802,7 +802,7 @@ export function LeadsTable({
             <Button
               variant="outline"
               size="icon"
-              className="h-8 w-8 p-0"
+              className="h-11 w-11 lg:h-8 lg:w-8 p-0 flex items-center justify-center"
               onClick={() => onPageChange(totalPages)}
               disabled={currentPage === totalPages}
               title="Last Page"

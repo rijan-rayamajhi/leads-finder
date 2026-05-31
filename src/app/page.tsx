@@ -89,7 +89,30 @@ export default function LeadGenDashboard() {
   const [history, setHistory] = useState<SearchHistoryItem[]>([]);
 
   // Navigation and filter states
-  const [activeTab, setActiveTab] = useState<'prospects' | 'crm' | 'history'>('prospects');
+  const [activeTab, _setActiveTab] = useState<'prospects' | 'crm' | 'history'>('prospects');
+
+  const setActiveTab = (tab: 'prospects' | 'crm' | 'history') => {
+    _setActiveTab(tab);
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('leads_finder_active_tab', tab);
+      window.location.hash = tab;
+    }
+  };
+
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const hash = window.location.hash.replace('#', '') as 'prospects' | 'crm' | 'history';
+      if (['prospects', 'crm', 'history'].includes(hash)) {
+        setTimeout(() => _setActiveTab(hash), 0);
+      } else {
+        const savedTab = localStorage.getItem('leads_finder_active_tab') as 'prospects' | 'crm' | 'history';
+        if (['prospects', 'crm', 'history'].includes(savedTab)) {
+          setTimeout(() => _setActiveTab(savedTab), 0);
+        }
+      }
+    }
+  }, []);
+
   const [searchFilter, setSearchFilter] = useState<string | null>(null);
 
   // Pipeline result state
@@ -536,7 +559,7 @@ export default function LeadGenDashboard() {
   return (
     <div className="min-h-screen bg-background flex font-sans antialiased text-foreground">
       {/* Desktop Left Sidebar */}
-      <aside className={`hidden md:flex border-r border-border bg-card flex-col fixed inset-y-0 left-0 z-40 transition-all duration-300 ease-in-out ${
+      <aside className={`hidden lg:flex border-r border-border bg-card flex-col fixed inset-y-0 left-0 z-40 transition-all duration-300 ease-in-out ${
         leftSidebarCollapsed ? 'w-16' : 'w-64'
       }`}>
         <div className={`h-16 border-b border-border flex items-center shrink-0 bg-card transition-all duration-300 ${
@@ -686,23 +709,23 @@ export default function LeadGenDashboard() {
 
       {/* Main Page Workspace Layout Container */}
       <div className={`flex-1 flex flex-col min-h-screen transition-all duration-300 ease-in-out ${
-        leftSidebarCollapsed ? 'md:pl-16' : 'md:pl-64'
+        leftSidebarCollapsed ? 'lg:pl-16' : 'lg:pl-64'
       }`}>
         {/* Dashboard Top Header */}
         <header className="bg-card border-b sticky top-0 z-30 shadow-sm shrink-0">
-          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-14 flex items-center justify-between">
+          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
             <div className="flex items-center gap-3">
               {/* Mobile Sidebar Toggle */}
               <Button
                 variant="ghost"
                 size="icon"
                 onClick={() => setMobileMenuOpen(true)}
-                className="md:hidden h-8 w-8"
+                className="lg:hidden h-11 w-11 flex items-center justify-center"
               >
-                <Menu className="w-5 h-5" />
+                <Menu className="w-6 h-6" />
               </Button>
               <div className="flex items-center gap-2.5">
-                <Image src="/logo.png" alt="Leads Finder" width={24} height={24} className="md:hidden w-6 h-6 rounded-md object-contain shadow-sm border border-border/50" />
+                <Image src="/logo.png" alt="Leads Finder" width={24} height={24} className="lg:hidden w-6 h-6 rounded-md object-contain shadow-sm border border-border/50" />
                 <h1 className="text-sm font-bold text-foreground leading-none">
                   {activeTab === 'prospects' ? 'Prospects' : activeTab === 'crm' ? 'CRM Dashboard' : 'Search History'}
                 </h1>
@@ -716,7 +739,7 @@ export default function LeadGenDashboard() {
           {activeTab === 'prospects' && (
             <>
               {/* Dashboard Dynamic Real-time Stats */}
-              <section className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4 animate-in fade-in duration-300">
+              <section className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4 animate-in fade-in duration-300">
                 <Card>
                   <CardContent className="p-4">
                     <span className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider block">Total Prospects</span>
@@ -762,13 +785,13 @@ export default function LeadGenDashboard() {
                           value={query}
                           onChange={(e) => setQuery(e.target.value)}
                           disabled={isRunningPipeline}
-                          className="pl-10 h-10 md:h-11"
+                          className="pl-10 h-11 lg:h-10"
                         />
                       </div>
                       <Button
                         type="submit"
                         disabled={isRunningPipeline || !query.trim()}
-                        className="h-10 md:h-11 px-5 font-semibold w-full sm:w-auto"
+                        className="h-11 lg:h-10 px-5 font-semibold w-full sm:w-auto"
                       >
                         {isRunningPipeline ? (
                           <>
@@ -1099,8 +1122,8 @@ export default function LeadGenDashboard() {
               {/* CRM Search & Filters control center */}
               <Card>
                 <CardContent className="p-4 sm:p-5">
-                  <div className="flex flex-col md:flex-row gap-4 justify-between items-center">
-                    <div className="relative w-full md:max-w-md">
+                  <div className="flex flex-col lg:flex-row gap-4 justify-between items-center w-full">
+                    <div className="relative w-full lg:max-w-md">
                       <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
                       <Input
                         type="text"
@@ -1110,13 +1133,13 @@ export default function LeadGenDashboard() {
                           setCrmSearchQuery(e.target.value);
                           setCurrentPage(1);
                         }}
-                        className="pl-10 h-10"
+                        className="pl-10 h-11 lg:h-10 w-full"
                       />
                     </div>
 
                     {/* Status Filters — Tabs component */}
-                    <Tabs value={crmStatusFilter} onValueChange={(v) => { setCrmStatusFilter(v); setCurrentPage(1); }} className="w-full md:w-auto">
-                      <TabsList className="h-9 flex-wrap">
+                    <Tabs value={crmStatusFilter} onValueChange={(v) => { setCrmStatusFilter(v); setCurrentPage(1); }} className="w-full lg:w-auto overflow-x-auto scrollbar-none">
+                      <TabsList className="h-11 lg:h-9 w-full lg:w-auto flex flex-nowrap lg:flex-wrap items-center justify-start lg:justify-center border border-border p-1 rounded-lg bg-muted/40 whitespace-nowrap">
                         {[
                           { value: 'all', label: 'All' },
                           { value: 'no_answer', label: 'Attempted' },
@@ -1125,7 +1148,7 @@ export default function LeadGenDashboard() {
                           { value: 'won', label: 'Won' },
                           { value: 'lost', label: 'Lost' }
                         ].map(tab => (
-                          <TabsTrigger key={tab.value} value={tab.value} className="text-xs font-semibold px-2.5">
+                          <TabsTrigger key={tab.value} value={tab.value} className="text-xs font-semibold px-3 py-1 h-9 lg:h-7 flex items-center justify-center">
                             {tab.label}
                           </TabsTrigger>
                         ))}
@@ -1294,7 +1317,7 @@ export default function LeadGenDashboard() {
 
         {/* CRM Lead Notes & Editor — Shadcn Sheet */}
         <Sheet open={!!selectedCRMLead} onOpenChange={(open) => { if (!open) setSelectedCRMLead(null); }}>
-          <SheetContent side="right" className={`${notesSidebarWide ? 'sm:max-w-2xl' : 'sm:max-w-md'} w-full p-0 flex flex-col h-full transition-all duration-300`}>
+          <SheetContent side="right" className={`${notesSidebarWide ? 'lg:max-w-2xl' : 'lg:max-w-md'} w-full p-0 flex flex-col h-full transition-all duration-300`}>
             {/* Drawer Header */}
             <SheetHeader className="px-6 py-5 border-b border-border shrink-0 bg-muted/20 space-y-1">
               <div className="flex items-center justify-between">
@@ -1310,7 +1333,7 @@ export default function LeadGenDashboard() {
                   variant="ghost"
                   size="icon"
                   onClick={() => setNotesSidebarWide(!notesSidebarWide)}
-                  className="h-8 w-8 hidden sm:flex"
+                  className="h-11 w-11 hidden sm:flex items-center justify-center"
                   title={notesSidebarWide ? "Collapse notes panel" : "Expand notes panel"}
                 >
                   {notesSidebarWide ? <Minimize2 className="w-4 h-4" /> : <Maximize2 className="w-4 h-4" />}
@@ -1334,7 +1357,7 @@ export default function LeadGenDashboard() {
                       type="text"
                       value={editorPhone}
                       onChange={(e) => setEditorPhone(e.target.value)}
-                      className="h-9 text-xs font-semibold"
+                      className="h-11 lg:h-9 text-xs font-semibold"
                       placeholder="e.g. 9876543210"
                     />
                   </div>
@@ -1345,7 +1368,7 @@ export default function LeadGenDashboard() {
                       type="email"
                       value={editorEmail}
                       onChange={(e) => setEditorEmail(e.target.value)}
-                      className="h-9 text-xs font-semibold"
+                      className="h-11 lg:h-9 text-xs font-semibold"
                       placeholder="owner@business.com"
                     />
                   </div>
@@ -1356,7 +1379,7 @@ export default function LeadGenDashboard() {
                       type="text"
                       value={editorWebsite}
                       onChange={(e) => setEditorWebsite(e.target.value)}
-                      className="h-9 text-xs font-semibold"
+                      className="h-11 lg:h-9 text-xs font-semibold"
                       placeholder="www.business.com"
                     />
                   </div>
@@ -1369,7 +1392,7 @@ export default function LeadGenDashboard() {
                 <div className="space-y-1.5">
                   <label className="text-xs font-bold text-foreground">Pipeline Stage</label>
                   <Select value={editorStatus} onValueChange={(v) => setEditorStatus(v as typeof editorStatus)}>
-                    <SelectTrigger className="h-10 text-xs font-semibold">
+                    <SelectTrigger className="h-11 lg:h-10 text-xs font-semibold">
                       <SelectValue placeholder="Select status" />
                     </SelectTrigger>
                     <SelectContent>
@@ -1391,7 +1414,7 @@ export default function LeadGenDashboard() {
                       type="number"
                       value={editorValue}
                       onChange={(e) => setEditorValue(Number(e.target.value) || 0)}
-                      className="h-10 text-xs font-bold pl-7"
+                      className="h-11 lg:h-10 text-xs font-bold pl-7"
                       placeholder="0"
                     />
                   </div>
@@ -1404,7 +1427,7 @@ export default function LeadGenDashboard() {
                     type="date"
                     value={editorFollowUp}
                     onChange={(e) => setEditorFollowUp(e.target.value)}
-                    className="h-10 text-xs font-semibold"
+                    className="h-11 lg:h-10 text-xs font-semibold"
                   />
                 </div>
 
@@ -1435,7 +1458,7 @@ export default function LeadGenDashboard() {
                         Pitch Strategy Template
                       </label>
                       <Select value={selectedTemplateKey} onValueChange={handleTemplateChange}>
-                        <SelectTrigger className="h-8 text-xs font-semibold">
+                        <SelectTrigger className="h-11 lg:h-8 text-xs font-semibold">
                           <SelectValue placeholder="Select template" />
                         </SelectTrigger>
                         <SelectContent>
@@ -1471,7 +1494,7 @@ export default function LeadGenDashboard() {
                             const url = `https://wa.me/91${cleanPhone}?text=${encodeURIComponent(editorWAPitch)}`;
                             window.open(url, '_blank');
                           }}
-                          className="flex-1 h-8 text-[11px] font-bold bg-emerald-600 hover:bg-emerald-700 text-white"
+                          className="flex-1 h-11 lg:h-9 text-[11px] font-bold bg-emerald-600 hover:bg-emerald-700 text-white"
                         >
                           <MessageCircle className="w-3.5 h-3.5 mr-1.5" /> Send WhatsApp
                         </Button>
@@ -1483,7 +1506,7 @@ export default function LeadGenDashboard() {
                             setCopiedWA(true);
                             setTimeout(() => setCopiedWA(false), 2000);
                           }}
-                          className="h-8 px-2.5 text-[11px] font-bold border-emerald-600/20 text-emerald-600 hover:bg-emerald-600/5"
+                          className="h-11 lg:h-9 px-4 text-[11px] font-bold border-emerald-600/20 text-emerald-600 hover:bg-emerald-600/5"
                         >
                           <Copy className="w-3.5 h-3.5 mr-1" />
                           {copiedWA ? 'Copied' : 'Copy'}
@@ -1502,7 +1525,7 @@ export default function LeadGenDashboard() {
                         type="text"
                         value={editorEmailSubject}
                         onChange={(e) => setEditorEmailSubject(e.target.value)}
-                        className="h-8 text-[11px] font-bold"
+                        className="h-11 lg:h-8 text-[11px] font-bold"
                         placeholder="Email Subject"
                       />
                       <textarea
@@ -1518,7 +1541,7 @@ export default function LeadGenDashboard() {
                             const url = `mailto:${editorEmail}?subject=${encodeURIComponent(editorEmailSubject)}&body=${encodeURIComponent(editorEmailBody)}`;
                             window.open(url);
                           }}
-                          className="flex-1 h-8 text-[11px] font-bold bg-rose-500 hover:bg-rose-600 text-white"
+                          className="flex-1 h-11 lg:h-9 text-[11px] font-bold bg-rose-500 hover:bg-rose-600 text-white"
                         >
                           <Mail className="w-3.5 h-3.5 mr-1.5" /> Send Email
                         </Button>
@@ -1531,7 +1554,7 @@ export default function LeadGenDashboard() {
                             setCopiedEmail(true);
                             setTimeout(() => setCopiedEmail(false), 2000);
                           }}
-                          className="h-8 px-2.5 text-[11px] font-bold border-rose-500/20 text-rose-500 hover:bg-rose-500/5"
+                          className="h-11 lg:h-9 px-4 text-[11px] font-bold border-rose-500/20 text-rose-500 hover:bg-rose-500/5"
                         >
                           <Copy className="w-3.5 h-3.5 mr-1" />
                           {copiedEmail ? 'Copied' : 'Copy'}
@@ -1544,17 +1567,17 @@ export default function LeadGenDashboard() {
             </div>
 
             {/* Drawer Footer Actions */}
-            <SheetFooter className="p-4 border-t border-border shrink-0 bg-muted/10 grid grid-cols-2 gap-3 sm:space-x-0">
+            <SheetFooter className="p-4 pb-safe-padded border-t border-border shrink-0 bg-muted/10 grid grid-cols-2 gap-3 sm:space-x-0">
               <Button 
                 variant="outline" 
                 onClick={() => setSelectedCRMLead(null)}
-                className="text-xs font-semibold h-10 w-full"
+                className="text-xs font-semibold h-11 lg:h-10 w-full"
               >
                 Cancel
               </Button>
               <Button 
                 onClick={handleSaveEditorChanges}
-                className="text-xs font-bold h-10 w-full"
+                className="text-xs font-bold h-11 lg:h-10 w-full"
               >
                 Save Changes
               </Button>
