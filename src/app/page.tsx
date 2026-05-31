@@ -1041,7 +1041,7 @@ export default function LeadGenDashboard() {
               <section className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4 animate-in fade-in duration-300">
                 <Card>
                   <CardContent className="p-4">
-                    <span className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider block flex items-center gap-1.5">
+                    <span className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider flex items-center gap-1.5">
                       <TrendingUp className="w-3.5 h-3.5 text-primary" /> Active Pipeline
                     </span>
                     <span className="text-2xl font-bold text-foreground tracking-tight block mt-1">
@@ -1055,7 +1055,7 @@ export default function LeadGenDashboard() {
 
                 <Card>
                   <CardContent className="p-4">
-                    <span className="text-[10px] font-medium text-emerald-600 dark:text-emerald-400 uppercase tracking-wider block flex items-center gap-1.5">
+                    <span className="text-[10px] font-medium text-emerald-600 dark:text-emerald-400 uppercase tracking-wider flex items-center gap-1.5">
                       <DollarSign className="w-3.5 h-3.5" /> Won Revenue
                     </span>
                     <span className="text-2xl font-bold text-emerald-600 dark:text-emerald-400 tracking-tight block mt-1">
@@ -1069,7 +1069,7 @@ export default function LeadGenDashboard() {
 
                 <Card>
                   <CardContent className="p-4">
-                    <span className="text-[10px] font-medium text-rose-500 uppercase tracking-wider block flex items-center gap-1.5">
+                    <span className="text-[10px] font-medium text-rose-500 uppercase tracking-wider flex items-center gap-1.5">
                       <Calendar className="w-3.5 h-3.5" /> Due Today / Overdue
                     </span>
                     <span className={`text-2xl font-bold tracking-tight block mt-1 ${pendingFollowUps > 0 ? 'text-rose-500 animate-pulse' : 'text-foreground'}`}>
@@ -1083,7 +1083,7 @@ export default function LeadGenDashboard() {
 
                 <Card>
                   <CardContent className="p-4">
-                    <span className="text-[10px] font-medium text-indigo-500 uppercase tracking-wider block flex items-center gap-1.5">
+                    <span className="text-[10px] font-medium text-indigo-500 uppercase tracking-wider flex items-center gap-1.5">
                       <UserCheck className="w-3.5 h-3.5" /> Close Rate
                     </span>
                     <span className="text-2xl font-bold text-foreground tracking-tight block mt-1">
