@@ -37,7 +37,7 @@ export async function scrapeBusinesses(query: string): Promise<RawBusiness[]> {
         if (!place.place_id) return;
 
         try {
-          const detailsUrl = `https://maps.googleapis.com/maps/api/place/details/json?place_id=${place.place_id}&fields=name,formatted_phone_number,website&key=${apiKey}`;
+          const detailsUrl = `https://maps.googleapis.com/maps/api/place/details/json?place_id=${place.place_id}&fields=name,formatted_phone_number,website,formatted_address,rating,user_ratings_total,url&key=${apiKey}`;
           const detailsRes = await fetch(detailsUrl);
           if (!detailsRes.ok) return;
 
@@ -49,6 +49,10 @@ export async function scrapeBusinesses(query: string): Promise<RawBusiness[]> {
               name: resultBiz.name || place.name || 'Unknown Business',
               phone: resultBiz.formatted_phone_number,
               website: resultBiz.website || null,
+              address: resultBiz.formatted_address || null,
+              rating: resultBiz.rating || null,
+              reviews: resultBiz.user_ratings_total || null,
+              maps_url: resultBiz.url || null,
             });
           }
         } catch (detailErr) {

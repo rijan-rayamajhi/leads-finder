@@ -43,6 +43,11 @@
   body {
     @apply bg-background text-foreground antialiased selection:bg-primary/10 selection:text-primary font-sans;
   }
+}@keyframes blink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0; }
 }
 
-
+.animate-blink {
+  animation: blink 1.2s step-end infinite;
+}

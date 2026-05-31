@@ -1,32 +1,28 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabase } from '@/lib/supabase';
 
-// GET — fetch leads, score high to low first, uncalled only by default
+// GET — fetch leads, score high to low first, uncalled only by default unless called is specified
 export async function GET(req: NextRequest) {
   try {
-    // Step 0: Auto-delete leads older than 7 days to keep database clean
-    const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
-    const { error: deleteErr } = await supabase
-      .from('leads')
-      .delete()
-      .lt('created_at', sevenDaysAgo);
-
-    if (deleteErr) {
-      console.error('Error performing auto-deletion of old leads:', deleteErr.message);
-    }
-
     const { searchParams } = new URL(req.url);
     const showAll = searchParams.get('showAll') === 'true';
     const intent = searchParams.get('intent') || 'high'; // 'high' | 'low' | 'all'
+    const calledParam = searchParams.get('called'); // 'true' | 'false' | null
 
     let query = supabase
       .from('leads')
-      .select('*')
-      .order('score', { ascending: false })
-      .limit(100);
+      .select('*');
 
-    if (!showAll) {
-      query = query.eq('called', false);
+    // If fetching for CRM, order by called_at desc so latest called is first
+    if (calledParam === 'true') {
+      query = query.eq('called', true).order('called_at', { ascending: false });
+    } else {
+      query = query.order('score', { ascending: false });
+      if (calledParam === 'false') {
+        query = query.eq('called', false);
+      } else if (!showAll) {
+        query = query.eq('called', false);
+      }
     }
 
     if (intent === 'high') {
@@ -34,6 +30,10 @@ export async function GET(req: NextRequest) {
     } else if (intent === 'low') {
       query = query.lte('score', 50);
     }
+
+    // Limit to 200 for CRM view to allow seeing more called leads
+    const limitAmount = calledParam === 'true' ? 200 : 100;
+    query = query.limit(limitAmount);
 
     const { data, error } = await query;
 
@@ -48,21 +48,65 @@ export async function GET(req: NextRequest) {
   }
 }
 
-// PATCH — mark a lead as called
+// PATCH — mark a lead as called or update CRM fields
 export async function PATCH(req: NextRequest) {
   try {
-    const { id } = await req.json();
+    const body = await req.json();
+    const { id } = body;
 
     if (!id) {
       return NextResponse.json({ error: 'id is required' }, { status: 400 });
     }
 
+    // Build update payload dynamically
+    const updatePayload: Record<string, unknown> = {};
+
+    if (body.called !== undefined) {
+      updatePayload.called = body.called;
+      if (body.called) {
+        updatePayload.called_at = new Date().toISOString();
+        updatePayload.crm_status = body.crm_status || 'no_answer';
+      } else {
+        updatePayload.called_at = null;
+        updatePayload.crm_status = null;
+        updatePayload.follow_up_at = null;
+        updatePayload.deal_value = 0;
+        updatePayload.notes = '';
+      }
+    }
+
+    if (body.crm_status !== undefined) {
+      updatePayload.crm_status = body.crm_status;
+    }
+    if (body.notes !== undefined) {
+      updatePayload.notes = body.notes;
+    }
+    if (body.follow_up_at !== undefined) {
+      updatePayload.follow_up_at = body.follow_up_at;
+    }
+    if (body.deal_value !== undefined) {
+      updatePayload.deal_value = body.deal_value === null ? null : (Number(body.deal_value) || 0);
+    }
+    if (body.phone !== undefined) {
+      updatePayload.phone = body.phone;
+    }
+    if (body.website !== undefined) {
+      updatePayload.website = body.website;
+    }
+    if (body.email !== undefined) {
+      updatePayload.email = body.email;
+    }
+
+    // If payload is empty (legacy simple mark called), default to marking as called
+    if (Object.keys(updatePayload).length === 0) {
+      updatePayload.called = true;
+      updatePayload.called_at = new Date().toISOString();
+      updatePayload.crm_status = 'no_answer';
+    }
+
     const { error } = await supabase
       .from('leads')
-      .update({
-        called: true,
-        called_at: new Date().toISOString(),
-      })
+      .update(updatePayload)
       .eq('id', id);
 
     if (error) {
