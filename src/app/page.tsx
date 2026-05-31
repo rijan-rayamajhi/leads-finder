@@ -133,8 +133,8 @@ export default function LeadGenDashboard() {
   // Real-time progress tracking state
   const [progressLogs, setProgressLogs] = useState<string[]>([]);
   
-  // Scraper console end ref for automatic scrolling
-  const consoleEndRef = useRef<HTMLDivElement | null>(null);
+  // Scraper console container ref for local scrolling
+  const consoleContainerRef = useRef<HTMLDivElement | null>(null);
 
   // Confirmation dialogs state
   const [confirmDialogOpen, setConfirmDialogOpen] = useState(false);
@@ -162,10 +162,10 @@ export default function LeadGenDashboard() {
     return () => clearTimeout(timer);
   }, []);
 
-  // Auto-scroll scraper console to bottom as logs stream in
+  // Auto-scroll scraper console locally to bottom as logs stream in
   useEffect(() => {
-    if (consoleEndRef.current) {
-      consoleEndRef.current.scrollIntoView({ behavior: 'smooth' });
+    if (consoleContainerRef.current) {
+      consoleContainerRef.current.scrollTop = consoleContainerRef.current.scrollHeight;
     }
   }, [progressLogs]);
 
@@ -894,7 +894,7 @@ export default function LeadGenDashboard() {
                       Scraping Progress
                     </CardTitle>
                   </CardHeader>
-                  <CardContent className="p-5 max-h-60 overflow-y-auto space-y-2 text-xs font-sans">
+                  <CardContent ref={consoleContainerRef} className="p-5 max-h-60 overflow-y-auto space-y-2 text-xs font-sans">
                     {progressLogs.length === 0 ? (
                       <div className="flex items-center gap-2 text-muted-foreground">
                         <Loader2 className="w-3.5 h-3.5 animate-spin text-muted-foreground" />
@@ -919,7 +919,6 @@ export default function LeadGenDashboard() {
                         </div>
                       ))
                     )}
-                    <div ref={consoleEndRef} />
                   </CardContent>
                 </Card>
               )}
