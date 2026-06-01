@@ -24,13 +24,15 @@ import {
   MapPin,
   ExternalLink,
   ChevronDown,
-  ChevronUp
+  ChevronUp,
+  ThumbsUp,
+  ThumbsDown
 } from 'lucide-react';
 import { AuditChecklist, parseLeadReason, getTierBadge } from '@/components/audit-checklist';
 
 type LeadsTableProps = {
   leads: Lead[];
-  onMarkCalled: (id: number) => void;
+  onMarkCalled: (id: number, crmStatus?: 'contacted' | 'no_answer') => void;
   isLoading: boolean;
   callingId: number | null;
   currentPage: number;
@@ -325,20 +327,30 @@ export function LeadsTable({
                   </div>
                 )}
 
-                <Button
-                  variant="default"
-                  size="sm"
-                  className="w-full text-xs font-bold h-11 flex items-center justify-center gap-1.5 shadow-sm transition-all animate-none"
-                  onClick={() => onMarkCalled(lead.id)}
-                  disabled={callingId === lead.id}
-                >
-                  {callingId === lead.id ? (
-                    <span className="animate-spin mr-1">⚡</span>
-                  ) : (
-                    <Check className="w-4 h-4" />
-                  )}
-                  Mark Called
-                </Button>
+                <div className="grid grid-cols-2 gap-2 pt-2">
+                  <Button
+                    variant="outline"
+                    className="text-xs font-bold h-11 border-emerald-500/20 bg-emerald-500/5 hover:bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 flex items-center justify-center gap-1.5 shadow-sm"
+                    onClick={() => onMarkCalled(lead.id, 'contacted')}
+                    disabled={callingId === lead.id}
+                  >
+                    {callingId === lead.id ? (
+                      <span className="animate-spin mr-1">⚡</span>
+                    ) : (
+                      <ThumbsUp className="w-4 h-4" />
+                    )}
+                    Interested
+                  </Button>
+                  <Button
+                    variant="outline"
+                    className="text-xs font-bold h-11 border-rose-500/20 bg-rose-500/5 hover:bg-rose-500/10 text-rose-600 dark:text-rose-400 flex items-center justify-center gap-1.5 shadow-sm"
+                    onClick={() => onMarkCalled(lead.id, 'no_answer')}
+                    disabled={callingId === lead.id}
+                  >
+                    <ThumbsDown className="w-4 h-4" />
+                    Not Interested
+                  </Button>
+                </div>
               </CardContent>
             </Card>
           );
@@ -347,19 +359,19 @@ export function LeadsTable({
 
       {/* Desktop Table View */}
       <div className="hidden lg:block w-full overflow-x-auto border-t border-border/60">
-        <Table className="min-w-[1250px] w-full table-fixed">
+        <Table className="min-w-[1300px] w-full table-fixed">
           <TableHeader>
             <TableRow>
               <TableHead className="w-12 pl-4"></TableHead>
               <TableHead className="w-14 font-semibold text-xs uppercase tracking-wider text-muted-foreground">S.N.</TableHead>
-              <TableHead className="font-semibold text-xs uppercase tracking-wider text-muted-foreground w-[260px]">Business Details</TableHead>
+              <TableHead className="font-semibold text-xs uppercase tracking-wider text-muted-foreground w-[240px]">Business Details</TableHead>
               <TableHead className="font-semibold text-xs uppercase tracking-wider text-muted-foreground w-44">Contact Details</TableHead>
-              <TableHead className="font-semibold text-xs uppercase tracking-wider text-muted-foreground text-center w-28">Maps Profile</TableHead>
-              <TableHead className="font-semibold text-xs uppercase tracking-wider text-muted-foreground w-28">Score</TableHead>
-              <TableHead className="font-semibold text-xs uppercase tracking-wider text-muted-foreground w-[260px]">Audit Reason</TableHead>
-              <TableHead className="font-semibold text-xs uppercase tracking-wider text-muted-foreground w-28">Source</TableHead>
-              <TableHead className="font-semibold text-xs uppercase tracking-wider text-muted-foreground w-36">Acquired At</TableHead>
-              <TableHead className="text-right font-semibold text-xs uppercase tracking-wider text-muted-foreground pr-4 w-36">Action</TableHead>
+              <TableHead className="font-semibold text-xs uppercase tracking-wider text-muted-foreground text-center w-24">Maps Profile</TableHead>
+              <TableHead className="font-semibold text-xs uppercase tracking-wider text-muted-foreground w-24">Score</TableHead>
+              <TableHead className="font-semibold text-xs uppercase tracking-wider text-muted-foreground w-[240px]">Audit Reason</TableHead>
+              <TableHead className="font-semibold text-xs uppercase tracking-wider text-muted-foreground w-40">Source</TableHead>
+              <TableHead className="font-semibold text-xs uppercase tracking-wider text-muted-foreground w-40">Acquired At</TableHead>
+              <TableHead className="text-right font-semibold text-xs uppercase tracking-wider text-muted-foreground pr-4 w-32">Action</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -475,7 +487,7 @@ export function LeadsTable({
                       </p>
                     </TableCell>
                     <TableCell className="py-4">
-                      <Badge variant="secondary" className="text-xs font-semibold whitespace-nowrap">
+                      <Badge variant="secondary" className="text-xs font-semibold max-w-[140px] truncate block" title={lead.source || 'Manual'}>
                         {lead.source || 'Manual'}
                       </Badge>
                     </TableCell>
@@ -486,20 +498,32 @@ export function LeadsTable({
                       }) : 'N/A'}
                     </TableCell>
                     <TableCell className="text-right py-4 pr-4">
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        className="text-xs font-bold h-9 px-3 border-primary/20 bg-primary/5 hover:bg-primary/10 text-primary transition-all duration-200"
-                        onClick={() => onMarkCalled(lead.id)}
-                        disabled={callingId === lead.id}
-                      >
-                        {callingId === lead.id ? (
-                          <span className="animate-spin mr-1">⚡</span>
-                        ) : (
-                          <Check className="w-3.5 h-3.5 mr-1" />
-                        )}
-                        Mark Called
-                      </Button>
+                      <div className="flex items-center justify-end gap-2 whitespace-nowrap">
+                        <Button
+                          variant="outline"
+                          size="icon"
+                          className="h-9 w-9 border-emerald-500/20 bg-emerald-500/5 hover:bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 transition-all duration-200"
+                          onClick={() => onMarkCalled(lead.id, 'contacted')}
+                          disabled={callingId === lead.id}
+                          title="Interested (Move to CRM)"
+                        >
+                          {callingId === lead.id ? (
+                            <span className="animate-spin text-sm">⚡</span>
+                          ) : (
+                            <ThumbsUp className="w-4 h-4" />
+                          )}
+                        </Button>
+                        <Button
+                          variant="outline"
+                          size="icon"
+                          className="h-9 w-9 border-rose-500/20 bg-rose-500/5 hover:bg-rose-500/10 text-rose-600 dark:text-rose-400 transition-all duration-200"
+                          onClick={() => onMarkCalled(lead.id, 'no_answer')}
+                          disabled={callingId === lead.id}
+                          title="Not Interested (Mark Attempted / No Answer)"
+                        >
+                          <ThumbsDown className="w-4 h-4" />
+                        </Button>
+                      </div>
                     </TableCell>
                   </TableRow>
 

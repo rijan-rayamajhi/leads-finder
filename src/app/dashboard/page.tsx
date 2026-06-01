@@ -44,7 +44,9 @@ import {
   Target,
   Award,
   Sparkles,
-  Check
+  Check,
+  Zap,
+  Video
 } from 'lucide-react';
 
 const SUGGESTIONS = [
@@ -83,6 +85,9 @@ export default function LeadGenDashboard() {
   const [editorNotes, setEditorNotes] = useState<string>('');
   const [editorFollowUp, setEditorFollowUp] = useState<string>('');
   const [editorValue, setEditorValue] = useState<number>(0);
+  const [editorMeetingNotes, setEditorMeetingNotes] = useState<string>('');
+  const [editorMeetingLink, setEditorMeetingLink] = useState<string>('');
+  const [editorValidationError, setEditorValidationError] = useState<string | null>(null);
   
   // CRM Contact & Outreach Editor fields
   const [editorPhone, setEditorPhone] = useState<string>('');
@@ -313,6 +318,38 @@ export default function LeadGenDashboard() {
   // Update CRM Lead details (status, notes, deal value, follow-up)
   const handleUpdateCRMLead = async (id: number, fields: Partial<Lead>) => {
     try {
+      const lead = crmLeads.find((l) => l.id === id) || leads.find((l) => l.id === id);
+      if (lead && fields.crm_status !== undefined && fields.crm_status !== lead.crm_status) {
+        const notes = fields.notes !== undefined ? fields.notes : lead.notes;
+        const followUp = fields.follow_up_at !== undefined ? fields.follow_up_at : lead.follow_up_at;
+        const value = fields.deal_value !== undefined ? fields.deal_value : lead.deal_value;
+        const meetingNotes = fields.meeting_notes !== undefined ? fields.meeting_notes : lead.meeting_notes;
+        const meetingLink = fields.meeting_link !== undefined ? fields.meeting_link : lead.meeting_link;
+
+        if (fields.crm_status === 'contacted') {
+          if (!notes?.trim() || !followUp) {
+            handleOpenLeadNotes(lead);
+            setEditorStatus('contacted');
+            setEditorValidationError("CRM Conversation Logs & Notes and Follow Up Date are mandatory for 'Spoke to Owner' stage.");
+            return;
+          }
+        } else if (fields.crm_status === 'meeting') {
+          if (!meetingNotes?.trim() || !followUp || !meetingLink?.trim()) {
+            handleOpenLeadNotes(lead);
+            setEditorStatus('meeting');
+            setEditorValidationError("Meeting Notes, Date, and Meeting Link are mandatory for 'Meeting Scheduled' stage.");
+            return;
+          }
+        } else if (fields.crm_status === 'won') {
+          if (!value || value <= 0) {
+            handleOpenLeadNotes(lead);
+            setEditorStatus('won');
+            setEditorValidationError("Est. Deal Value (Amount) is mandatory and must be greater than 0 for 'Closed Won' stage.");
+            return;
+          }
+        }
+      }
+
       const res = await fetch('/api/leads', {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
@@ -327,11 +364,21 @@ export default function LeadGenDashboard() {
         if (fields.called === false) {
           return prev.filter((lead) => lead.id !== id);
         }
+        const exists = prev.some((l) => l.id === id);
+        if (!exists && fields.called === true) {
+          const orig = leads.find((l) => l.id === id);
+          if (orig) {
+            return [{ ...orig, ...fields }, ...prev];
+          }
+        }
         return prev.map((lead) => (lead.id === id ? { ...lead, ...fields } : lead));
       };
 
       setLeads((prev) => {
         if (fields.called === false) {
+          return prev.filter((lead) => lead.id !== id);
+        }
+        if (fields.called === true && !showAll) {
           return prev.filter((lead) => lead.id !== id);
         }
         return prev.map((lead) => (lead.id === id ? { ...lead, ...fields } : lead));
@@ -379,6 +426,9 @@ export default function LeadGenDashboard() {
     setEditorNotes(lead.notes || '');
     setEditorFollowUp(lead.follow_up_at ? lead.follow_up_at.substring(0, 10) : '');
     setEditorValue(lead.deal_value || 0);
+    setEditorMeetingNotes(lead.meeting_notes || '');
+    setEditorMeetingLink(lead.meeting_link || '');
+    setEditorValidationError(null);
 
     setEditorPhone(lead.phone || '');
     setEditorWebsite(lead.website || '');
@@ -417,14 +467,54 @@ export default function LeadGenDashboard() {
 
   const handleSaveEditorChanges = async () => {
     if (!selectedCRMLead) return;
+
+    if (editorStatus === 'contacted') {
+      if (!editorNotes.trim()) {
+        setEditorValidationError("CRM Conversation Logs & Notes is mandatory for 'Spoke to Owner' stage.");
+        return;
+      }
+      if (!editorFollowUp) {
+        setEditorValidationError("Follow Up Date is mandatory for 'Spoke to Owner' stage.");
+        return;
+      }
+    } else if (editorStatus === 'meeting') {
+      if (!editorMeetingNotes.trim()) {
+        setEditorValidationError("Meeting Notes are mandatory for 'Meeting Scheduled' stage.");
+        return;
+      }
+      if (!editorFollowUp) {
+        setEditorValidationError("Meeting Date is mandatory for 'Meeting Scheduled' stage.");
+        return;
+      }
+      if (!editorMeetingLink.trim()) {
+        setEditorValidationError("Meeting Link is mandatory for 'Meeting Scheduled' stage.");
+        return;
+      }
+      const urlPattern = /^(https?:\/\/)?([\da-z.-]+)\.([a-z.]{2,6})([/\w .-]*)*\/?$/i;
+      if (!urlPattern.test(editorMeetingLink.trim())) {
+        setEditorValidationError("Please enter a valid URL for the Meeting Link (e.g. https://meet.google.com/abc).");
+        return;
+      }
+    } else if (editorStatus === 'won') {
+      if (!editorValue || editorValue <= 0) {
+        setEditorValidationError("Est. Deal Value (Amount) is mandatory and must be greater than 0 for 'Closed Won' stage.");
+        return;
+      }
+    }
+
+    setEditorValidationError(null);
+
     await handleUpdateCRMLead(selectedCRMLead.id, {
+      called: true,
       crm_status: editorStatus,
       notes: editorNotes,
       follow_up_at: editorFollowUp ? new Date(editorFollowUp).toISOString() : null,
       deal_value: editorValue,
       phone: editorPhone || null,
       website: editorWebsite || null,
-      email: editorEmail || null
+      email: editorEmail || null,
+      meeting_notes: editorMeetingNotes,
+      meeting_link: editorMeetingLink
     });
     setSelectedCRMLead(null);
   };
@@ -554,17 +644,32 @@ export default function LeadGenDashboard() {
   };
 
   // Mark a lead as called (optimistic update)
-  const handleMarkCalled = async (id: number) => {
+  const handleMarkCalled = async (id: number, crmStatus?: 'contacted' | 'no_answer') => {
+    const lead = leads.find((l) => l.id === id);
+    if (!lead) return;
+
+    if (crmStatus === 'contacted') {
+      handleOpenLeadNotes({
+        ...lead,
+        called: true,
+        crm_status: 'contacted'
+      });
+      setEditorStatus('contacted');
+      setEditorValidationError("CRM Conversation Logs & Notes and Follow Up Date are mandatory to promote this lead to 'Spoke to Owner'. Please enter them now.");
+      setActiveTab('crm');
+      return;
+    }
+
     setCallingId(id);
     
     const originalLeads = [...leads];
     
     if (!showAll) {
-      setLeads((prev) => prev.filter((lead) => lead.id !== id));
+      setLeads((prev) => prev.filter((l) => l.id !== id));
     } else {
       setLeads((prev) =>
-        prev.map((lead) =>
-          lead.id === id ? { ...lead, called: true, called_at: new Date().toISOString() } : lead
+        prev.map((l) =>
+          l.id === id ? { ...l, called: true, called_at: new Date().toISOString(), crm_status: crmStatus || 'no_answer' } : l
         )
       );
     }
@@ -573,16 +678,16 @@ export default function LeadGenDashboard() {
       const res = await fetch('/api/leads', {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ id }),
+        body: JSON.stringify({ id, called: true, crm_status: crmStatus || 'no_answer' }),
       });
 
       if (!res.ok) {
-        throw new Error('Could not update lead called status.');
+        throw new Error('Could not update lead status.');
       }
     } catch (err: unknown) {
       const error = err as Error;
       setLeads(originalLeads);
-      setErrorText(error.message || 'Could not update lead called status. Refreshed table.');
+      setErrorText(error.message || 'Could not update lead status. Refreshed table.');
     } finally {
       setCallingId(null);
     }
@@ -1172,8 +1277,8 @@ export default function LeadGenDashboard() {
                     {/* Active Target display card */}
                     {currentProgressMessage ? (
                       <div className="bg-primary/5 border border-primary/10 rounded-xl p-3 flex items-start gap-3">
-                        <div className="h-7 w-7 rounded-lg bg-primary/10 border border-primary/20 flex items-center justify-center font-bold text-xs text-primary shrink-0 animate-pulse">
-                          ⚡
+                        <div className="h-7 w-7 rounded-lg bg-primary/10 border border-primary/20 flex items-center justify-center text-primary shrink-0 animate-pulse">
+                          <Zap className="w-4 h-4" />
                         </div>
                         <div className="space-y-1 min-w-0">
                           <span className="text-[9px] uppercase font-bold text-primary tracking-wider block">Currently Auditing</span>
@@ -1200,7 +1305,7 @@ export default function LeadGenDashboard() {
                             className="mt-3 p-3.5 rounded-xl border border-border/80 bg-muted/20 max-h-40 overflow-y-auto space-y-2.5 font-mono text-[10.5px] leading-relaxed text-muted-foreground"
                           >
                             {progressLogs.map((log, idx) => {
-                              const isSkipped = log.startsWith('⏭ Skipped') || log.includes('Skipping');
+                              const isSkipped = log.startsWith('Skipped') || log.includes('Skipping');
                               if (isSkipped) {
                                 return (
                                   <div key={idx} className="flex items-center gap-2 text-muted-foreground/60 italic">
@@ -1211,7 +1316,7 @@ export default function LeadGenDashboard() {
                               }
                               return (
                                 <div key={idx} className="flex items-start gap-2">
-                                  <span className="text-emerald-500 font-bold shrink-0">✓</span>
+                                  <Check className="w-3.5 h-3.5 text-emerald-500 shrink-0 mt-0.5" />
                                   <span>{log}</span>
                                 </div>
                               );
@@ -1786,6 +1891,15 @@ export default function LeadGenDashboard() {
 
             {/* Drawer Scrollable Content */}
             <div className={`flex-1 overflow-y-auto p-4 sm:p-6 ${notesSidebarWide ? 'lg:grid lg:grid-cols-2 lg:gap-6 lg:space-y-0' : 'space-y-6'}`}>
+              {editorValidationError && (
+                <div className="col-span-2 bg-destructive/10 border border-destructive/20 rounded-xl p-4 flex items-start gap-3 animate-in slide-in-from-top-2 duration-200">
+                  <AlertTriangle className="w-5 h-5 text-destructive shrink-0 mt-0.5" />
+                  <div className="space-y-1">
+                    <p className="text-xs font-bold text-destructive">Required Field Error</p>
+                    <p className="text-xs font-medium text-destructive/90 leading-normal">{editorValidationError}</p>
+                  </div>
+                </div>
+              )}
               
               {/* Left Column: Contact Enrichment & CRM Stats */}
               <div className="space-y-6">
@@ -1836,7 +1950,10 @@ export default function LeadGenDashboard() {
                   {/* Status Dropdown — Shadcn Select */}
                   <div className="space-y-1.5">
                     <label className="text-xs font-bold text-foreground">Pipeline Stage</label>
-                    <Select value={editorStatus} onValueChange={(v) => setEditorStatus(v as typeof editorStatus)}>
+                    <Select value={editorStatus} onValueChange={(v) => {
+                      setEditorStatus(v as typeof editorStatus);
+                      setEditorValidationError(null);
+                    }}>
                       <SelectTrigger className="h-11 lg:h-10 text-base lg:text-sm font-semibold">
                         <SelectValue placeholder="Select status" />
                       </SelectTrigger>
@@ -1852,43 +1969,92 @@ export default function LeadGenDashboard() {
 
                   {/* Deal Value */}
                   <div className="space-y-1.5">
-                    <label className="text-xs font-bold text-foreground">Est. Deal Value ($)</label>
+                    <label className="text-xs font-bold text-foreground">
+                      Est. Deal Value ($) {editorStatus === 'won' && <span className="text-rose-500 font-bold">*</span>}
+                    </label>
                     <div className="relative">
                       <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-xs font-bold text-muted-foreground">$</span>
                       <Input
                         type="number"
                         value={editorValue}
                         onChange={(e) => setEditorValue(Number(e.target.value) || 0)}
-                        className="h-11 lg:h-10 text-base lg:text-sm font-bold pl-7"
+                        className={`h-11 lg:h-10 text-base lg:text-sm font-bold pl-7 ${editorStatus === 'won' && !editorValue ? 'border-rose-500 focus-visible:ring-rose-500 bg-rose-500/5' : ''}`}
                         placeholder="0"
                       />
                     </div>
                   </div>
 
-                  {/* Follow-up Date */}
+                  {/* Follow-up / Meeting Date */}
                   <div className="space-y-1.5">
-                    <label className="text-xs font-bold text-foreground">Next Follow-up Date</label>
+                    <label className="text-xs font-bold text-foreground flex items-center gap-1">
+                      {editorStatus === 'meeting' ? (
+                        <>
+                          <Calendar className="w-3.5 h-3.5 text-amber-500" />
+                          <span>Meeting Date <span className="text-rose-500 font-bold">*</span></span>
+                        </>
+                      ) : (
+                        <>
+                          <span>Next Follow-up Date {(editorStatus === 'contacted') && <span className="text-rose-500 font-bold">*</span>}</span>
+                        </>
+                      )}
+                    </label>
                     <Input
                       type="date"
                       value={editorFollowUp}
                       onChange={(e) => setEditorFollowUp(e.target.value)}
-                      className="h-11 lg:h-10 text-base lg:text-sm font-semibold"
+                      className={`h-11 lg:h-10 text-base lg:text-sm font-semibold ${(editorStatus === 'contacted' || editorStatus === 'meeting') && !editorFollowUp ? 'border-rose-500 focus-visible:ring-rose-500 bg-rose-500/5' : ''}`}
                     />
                   </div>
 
-                  {/* CRM Notes */}
-                  <div className="space-y-1.5">
-                    <label className="text-xs font-bold text-foreground flex items-center gap-1">
-                      <Notebook className="w-3.5 h-3.5 text-muted-foreground" /> CRM Conversation Logs & Notes
-                    </label>
-                    <textarea
-                      value={editorNotes}
-                      onChange={(e) => setEditorNotes(e.target.value)}
-                      rows={5}
-                      className="w-full text-base lg:text-sm font-medium bg-background border border-input rounded-md p-3 focus:outline-none focus-visible:ring-2 focus-visible:ring-ring leading-relaxed"
-                      placeholder="Record call responses, specific requests, custom quote breakdowns..."
-                    />
-                  </div>
+                  {/* Meeting Link (Only for Meeting stage) */}
+                  {editorStatus === 'meeting' && (
+                    <div className="space-y-1.5 animate-in slide-in-from-top-2 duration-200">
+                      <label className="text-xs font-bold text-foreground flex items-center gap-1">
+                        <Video className="w-3.5 h-3.5 text-amber-500" />
+                        <span>Meeting Link <span className="text-rose-500 font-bold">*</span></span>
+                      </label>
+                      <Input
+                        type="text"
+                        value={editorMeetingLink}
+                        onChange={(e) => setEditorMeetingLink(e.target.value)}
+                        className={`h-11 lg:h-10 text-base lg:text-sm font-semibold ${!editorMeetingLink ? 'border-rose-500 focus-visible:ring-rose-500 bg-rose-500/5' : ''}`}
+                        placeholder="e.g. https://meet.google.com/abc-defg-hij"
+                      />
+                    </div>
+                  )}
+
+                  {/* Meeting Notes (Only for Meeting stage) */}
+                  {editorStatus === 'meeting' && (
+                    <div className="space-y-1.5 animate-in slide-in-from-top-2 duration-200">
+                      <label className="text-xs font-bold text-foreground flex items-center gap-1">
+                        <Notebook className="w-3.5 h-3.5 text-amber-500" />
+                        <span>Meeting Notes <span className="text-rose-500 font-bold">*</span></span>
+                      </label>
+                      <textarea
+                        value={editorMeetingNotes}
+                        onChange={(e) => setEditorMeetingNotes(e.target.value)}
+                        rows={4}
+                        className={`w-full text-base lg:text-sm font-medium bg-background border rounded-md p-3 focus:outline-none focus-visible:ring-2 focus-visible:ring-ring leading-relaxed ${!editorMeetingNotes ? 'border-rose-500 focus-visible:ring-rose-500 bg-rose-500/5' : 'border-input'}`}
+                        placeholder="Record agenda, key outcomes, meeting summary..."
+                      />
+                    </div>
+                  )}
+
+                  {/* CRM Notes (For all stages EXCEPT Meeting stage) */}
+                  {editorStatus !== 'meeting' && (
+                    <div className="space-y-1.5">
+                      <label className="text-xs font-bold text-foreground flex items-center gap-1">
+                        <Notebook className="w-3.5 h-3.5 text-muted-foreground" /> CRM Conversation Logs & Notes {editorStatus === 'contacted' && <span className="text-rose-500 font-bold">*</span>}
+                      </label>
+                      <textarea
+                        value={editorNotes}
+                        onChange={(e) => setEditorNotes(e.target.value)}
+                        rows={5}
+                        className={`w-full text-base lg:text-sm font-medium bg-background border rounded-md p-3 focus:outline-none focus-visible:ring-2 focus-visible:ring-ring leading-relaxed ${editorStatus === 'contacted' && !editorNotes ? 'border-rose-500 focus-visible:ring-rose-500 bg-rose-500/5' : 'border-input'}`}
+                        placeholder="Record call responses, specific requests, custom quote breakdowns..."
+                      />
+                    </div>
+                  )}
                 </div>
               </div>
 

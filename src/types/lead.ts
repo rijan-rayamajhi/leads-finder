@@ -21,6 +21,8 @@ export type Lead = {
   follow_up_at?: string | null;
   deal_value?: number;
   email?: string | null;
+  meeting_notes?: string | null;
+  meeting_link?: string | null;
 
   // Multi-dimensional scoring and analysis
   revenue_score?: number;

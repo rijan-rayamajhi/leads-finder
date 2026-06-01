@@ -31,7 +31,7 @@ export async function POST(req: NextRequest) {
             status: 'progress', 
             progress: 5,
             active_biz: 'Cleaning database entries older than 7 days...',
-            message: '🧹 Cleaning database (removing leads older than 7 days)...' 
+            message: 'Cleaning database (removing leads older than 7 days)...' 
           });
           await sleep(250); // Yield to flush stream buffer
 
@@ -51,7 +51,7 @@ export async function POST(req: NextRequest) {
             status: 'progress', 
             progress: 15,
             active_biz: `Searching Google Places for "${query.trim()}"...`,
-            message: `🔍 Searching Google Places for "${query.trim()}"...` 
+            message: `Searching Google Places for "${query.trim()}"...` 
           });
           await sleep(250); // Yield to flush stream buffer
 
@@ -69,7 +69,7 @@ export async function POST(req: NextRequest) {
             status: 'progress', 
             progress: 30,
             active_biz: `Found ${businesses.length} candidates. Initiating web audits...`,
-            message: `📋 Found ${businesses.length} business candidates. Checking phone numbers & duplicates...` 
+            message: `Found ${businesses.length} business candidates. Checking phone numbers & duplicates...` 
           });
           await sleep(250); // Yield to flush stream buffer
 
@@ -86,7 +86,7 @@ export async function POST(req: NextRequest) {
                   status: 'progress', 
                   progress,
                   active_biz: biz.name,
-                  message: `⚠️ Skipping "${biz.name}": No phone number found.` 
+                  message: `Skipping "${biz.name}": No phone number found.` 
                 });
                 await sleep(100); // Yield to prevent sequential batching of skipped elements
                 continue;
@@ -102,7 +102,7 @@ export async function POST(req: NextRequest) {
                   status: 'progress', 
                   progress,
                   active_biz: biz.name,
-                  message: `⚠️ Skipping "${biz.name}": Invalid phone format.` 
+                  message: `Skipping "${biz.name}": Invalid phone format.` 
                 });
                 await sleep(100); // Yield
                 continue;
@@ -130,7 +130,7 @@ export async function POST(req: NextRequest) {
                   status: 'progress', 
                   progress,
                   active_biz: biz.name,
-                  message: `🔄 Updating "${biz.name}" (Duplicate lead; refreshed last_seen in database)...` 
+                  message: `Updating "${biz.name}" (Duplicate lead; refreshed last_seen in database)...` 
                 });
                 await sleep(100); // Yield to prevent sequential batching of skipped elements
                 result.skipped_dedup++;
@@ -160,7 +160,7 @@ export async function POST(req: NextRequest) {
                   progress,
                   active_biz: biz.name,
                   type: 'log',
-                  message: `⏭ Skipped ${leadData.name} — ${dqCheck.reason}`
+                  message: `Skipped ${leadData.name} — ${dqCheck.reason}`
                 });
                 await sleep(100); // Yield to prevent sequential batching of skipped elements
                 continue;
@@ -171,7 +171,7 @@ export async function POST(req: NextRequest) {
                 status: 'progress', 
                 progress,
                 active_biz: biz.name,
-                message: `🧠 Auditing web presence for "${biz.name}" (Website: ${biz.website || 'None'})...` 
+                message: `Auditing web presence for "${biz.name}" (Website: ${biz.website || 'None'})...` 
               });
               const scoring = await scoreLead(website, leadData);
 
@@ -184,7 +184,7 @@ export async function POST(req: NextRequest) {
                   status: 'progress', 
                   progress,
                   active_biz: biz.name,
-                  message: `📉 Skipping "${biz.name}" (Opportunity: ${scoring.opportunityScore}/40, Revenue: ${scoring.revenueScore}/30, Primary Problem: ${scoring.problems?.primary}).` 
+                  message: `Skipping "${biz.name}" (Opportunity: ${scoring.opportunityScore}/40, Revenue: ${scoring.revenueScore}/30, Primary Problem: ${scoring.problems?.primary}).` 
                 });
                 await sleep(100); // Yield to prevent sequential batching of skipped elements
                 result.skipped_score++;
@@ -205,7 +205,7 @@ export async function POST(req: NextRequest) {
                 status: 'progress', 
                 progress,
                 active_biz: biz.name,
-                message: `💾 Storing hot prospect "${biz.name}" in database (Score: ${scoring.finalScore})...` 
+                message: `Storing hot prospect "${biz.name}" in database (Score: ${scoring.finalScore})...` 
               });
               const { error: insertErr } = await supabase
                 .from('leads')
@@ -255,7 +255,7 @@ export async function POST(req: NextRequest) {
                   status: 'progress', 
                   progress,
                   active_biz: biz.name,
-                  message: `❌ Database insert failed for "${biz.name}".` 
+                  message: `Database insert failed for "${biz.name}".` 
                 });
                 continue;
               }

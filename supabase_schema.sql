@@ -32,6 +32,8 @@ CREATE TABLE leads (
   email                   TEXT DEFAULT NULL,
   pipeline_stage          TEXT DEFAULT 'Prospect', -- For legacy/safety compatibility
   reminder_date           TIMESTAMP WITH TIME ZONE DEFAULT NULL,
+  meeting_notes           TEXT DEFAULT NULL,
+  meeting_link            TEXT DEFAULT NULL,
 
   -- Revenue-Driven Intelligence & Multi-dimensional Scoring
   revenue_score           INT DEFAULT 0,

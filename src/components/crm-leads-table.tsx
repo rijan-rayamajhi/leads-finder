@@ -32,7 +32,9 @@ import {
   ChevronDown,
   ChevronUp,
   MapPin,
-  Globe
+  Globe,
+  Video,
+  AlertTriangle
 } from 'lucide-react';
 import React, { useState } from 'react';
 import { AuditChecklist, parseLeadReason, getTierBadge } from '@/components/audit-checklist';
@@ -73,6 +75,19 @@ export function CRMLeadsTable({
   const [expandedRowId, setExpandedRowId] = useState<number | null>(null);
   const [revertDialogOpen, setRevertDialogOpen] = useState(false);
   const [revertLeadId, setRevertLeadId] = useState<number | null>(null);
+
+  const checkIsUpdateRequired = (lead: Lead) => {
+    if (lead.crm_status === 'contacted') {
+      return !lead.notes?.trim() || !lead.follow_up_at;
+    }
+    if (lead.crm_status === 'meeting') {
+      return !lead.meeting_notes?.trim() || !lead.follow_up_at || !lead.meeting_link?.trim();
+    }
+    if (lead.crm_status === 'won') {
+      return !lead.deal_value || lead.deal_value <= 0;
+    }
+    return false;
+  };
 
   const toggleRow = (id: number) => {
     setExpandedRowId(prev => prev === id ? null : id);
@@ -291,6 +306,17 @@ export function CRMLeadsTable({
                   </div>
                 </div>
 
+                {checkIsUpdateRequired(lead) && (
+                  <Button
+                    variant="outline"
+                    onClick={() => onOpenNotes(lead)}
+                    className="w-full h-10 text-[10px] font-bold border-rose-500/20 text-rose-500 bg-rose-500/5 hover:bg-rose-500/10 flex items-center justify-center gap-1.5 rounded-lg animate-pulse"
+                  >
+                    <AlertTriangle className="w-3.5 h-3.5 text-rose-500 shrink-0" />
+                    <span>Update Required: Missing Stage Details</span>
+                  </Button>
+                )}
+
                 {/* Follow-up and Notes Preview */}
                 <div className="space-y-2 text-xs text-muted-foreground pt-1">
                   <div className="flex items-center justify-between">
@@ -300,14 +326,31 @@ export function CRMLeadsTable({
                     <span className={`text-xs ${fu.color}`}>{fu.label}</span>
                   </div>
 
-                  {lead.notes && (
+                   {lead.crm_status === 'meeting' && lead.meeting_notes ? (
+                    <div className="bg-amber-500/5 p-2.5 rounded-lg border border-amber-500/10 space-y-1.5 animate-in fade-in duration-200">
+                      <p className="text-[10px] uppercase font-bold text-amber-600 dark:text-amber-400 tracking-wider flex items-center gap-1">
+                        <Video className="w-3 h-3 text-amber-500" /> Meeting Notes
+                      </p>
+                      <p className="italic text-foreground line-clamp-2 leading-relaxed text-xs">{lead.meeting_notes}</p>
+                      {lead.meeting_link && (
+                        <a
+                          href={lead.meeting_link.startsWith('http') ? lead.meeting_link : `https://${lead.meeting_link}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="inline-flex items-center gap-1 text-[10px] font-extrabold text-amber-600 dark:text-amber-400 hover:underline pt-0.5"
+                        >
+                          <ExternalLink className="w-3.5 h-3.5" /> Join Meeting Link
+                        </a>
+                      )}
+                    </div>
+                  ) : lead.notes ? (
                     <div className="bg-muted/40 p-2.5 rounded-lg border border-border/40">
                       <p className="text-[10px] uppercase font-bold text-muted-foreground tracking-wider mb-1 flex items-center gap-1">
                         <Notebook className="w-3 h-3 text-muted-foreground" /> Latest Note
                       </p>
-                      <p className="italic text-foreground line-clamp-2 leading-relaxed">{lead.notes}</p>
+                      <p className="italic text-foreground line-clamp-2 leading-relaxed text-xs">{lead.notes}</p>
                     </div>
-                  )}
+                  ) : null}
                 </div>
 
                 {/* View Audit Report Action toggle */}
@@ -516,19 +559,31 @@ export function CRMLeadsTable({
 
                     {/* Status Dropdown — Shadcn Select */}
                     <TableCell className="py-4">
-                      <Select 
-                        value={lead.crm_status || 'no_answer'}
-                        onValueChange={(v) => onUpdateLead(lead.id, { crm_status: v as Lead['crm_status'] })}
-                      >
-                        <SelectTrigger className="h-10 text-sm font-semibold w-full">
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {CRM_STATUSES.map(st => (
-                            <SelectItem key={st.value} value={st.value}>{st.label}</SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
+                      <div className="space-y-1.5 flex flex-col justify-center">
+                        <Select 
+                          value={lead.crm_status || 'no_answer'}
+                          onValueChange={(v) => onUpdateLead(lead.id, { crm_status: v as Lead['crm_status'] })}
+                        >
+                          <SelectTrigger className="h-10 text-sm font-semibold w-full">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {CRM_STATUSES.map(st => (
+                              <SelectItem key={st.value} value={st.value}>{st.label}</SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                        {checkIsUpdateRequired(lead) && (
+                          <button
+                            onClick={() => onOpenNotes(lead)}
+                            className="text-[9px] font-bold text-rose-500 hover:text-rose-600 bg-rose-500/10 border border-rose-500/20 px-2 py-0.5 rounded flex items-center justify-center gap-1 w-full transition-colors animate-pulse"
+                            title="Click to resolve missing mandatory fields"
+                          >
+                            <AlertTriangle className="w-2.5 h-2.5 text-rose-500 shrink-0" />
+                            <span>Update Required</span>
+                          </button>
+                        )}
+                      </div>
                     </TableCell>
 
                     {/* Deal Value */}
@@ -609,9 +664,27 @@ export function CRMLeadsTable({
 
                     {/* Notes Preview */}
                     <TableCell className="py-4 text-sm">
-                      <p className="text-muted-foreground line-clamp-2 leading-relaxed italic font-medium" title={lead.notes || 'No notes taken yet.'}>
-                        {lead.notes || 'No notes taken yet. Click notes button or double-click row to add notes.'}
-                      </p>
+                      {lead.crm_status === 'meeting' ? (
+                        <div className="space-y-1 flex flex-col justify-start">
+                          <p className="text-muted-foreground line-clamp-2 leading-relaxed italic font-medium" title={lead.meeting_notes || 'No meeting notes taken yet.'}>
+                            {lead.meeting_notes || 'No meeting notes taken yet. Click notes button to add meeting notes.'}
+                          </p>
+                          {lead.meeting_link && (
+                            <a
+                              href={lead.meeting_link.startsWith('http') ? lead.meeting_link : `https://${lead.meeting_link}`}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="inline-flex items-center gap-1.5 text-[10px] font-extrabold text-amber-600 dark:text-amber-400 hover:underline mt-1 bg-amber-500/5 border border-amber-500/10 px-2 py-0.5 rounded w-fit"
+                            >
+                              <Video className="w-3 h-3" /> Join Meeting
+                            </a>
+                          )}
+                        </div>
+                      ) : (
+                        <p className="text-muted-foreground line-clamp-2 leading-relaxed italic font-medium" title={lead.notes || 'No notes taken yet.'}>
+                          {lead.notes || 'No notes taken yet. Click notes button or double-click row to add notes.'}
+                        </p>
+                      )}
                     </TableCell>
 
                     <TableCell className="py-4 text-xs font-medium text-muted-foreground leading-normal">

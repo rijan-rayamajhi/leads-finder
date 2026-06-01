@@ -102,6 +102,12 @@ export async function PATCH(req: NextRequest) {
     if (body.email !== undefined) {
       updatePayload.email = body.email;
     }
+    if (body.meeting_notes !== undefined) {
+      updatePayload.meeting_notes = body.meeting_notes;
+    }
+    if (body.meeting_link !== undefined) {
+      updatePayload.meeting_link = body.meeting_link;
+    }
 
     // If payload is empty (legacy simple mark called), default to marking as called
     if (Object.keys(updatePayload).length === 0) {
