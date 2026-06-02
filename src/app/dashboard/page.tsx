@@ -1099,8 +1099,8 @@ export default function LeadGenDashboard() {
     return (
       <div className="min-h-screen bg-background flex flex-col items-center justify-center font-sans p-4">
         <div className="flex flex-col items-center space-y-4 max-w-[260px] w-full text-center">
-          <div className="h-14 w-14 rounded border border-border flex items-center justify-center bg-background shadow-none relative mb-1 animate-pulse">
-            <Image src="/logo_v2.png" alt="Aetheron Studio CRM" width={42} height={42} className="object-contain" style={{ width: '42px', height: '42px' }} />
+          <div className="h-20 w-20 rounded-xl border border-border flex items-center justify-center bg-background shadow-sm relative mb-2 p-2 animate-pulse">
+            <Image src="/aetheron_studio.png" alt="Aetheron Studio CRM" width={64} height={64} className="object-contain" />
           </div>
           <div className="space-y-1">
             <p className="text-sm font-medium text-foreground tracking-tight flex items-center justify-center gap-2">
@@ -1120,8 +1120,8 @@ export default function LeadGenDashboard() {
       <div className="min-h-screen bg-background flex flex-col items-center justify-center font-sans p-4">
         <div className="w-full max-w-[400px] border border-border bg-card rounded-lg shadow-none p-6 sm:p-8 space-y-6 text-left">
           <div className="flex flex-col space-y-2">
-            <div className="h-12 w-12 rounded border border-border flex items-center justify-center bg-background shadow-none mb-1">
-              <Image src="/logo_v2.png" alt="Aetheron Studio CRM" width={38} height={38} className="object-contain" style={{ width: '38px', height: '38px' }} />
+            <div className="h-20 w-20 rounded-xl border border-border flex items-center justify-center bg-background shadow-sm mb-2 p-2">
+              <Image src="/aetheron_studio.png" alt="Aetheron Studio CRM" width={64} height={64} className="object-contain" />
             </div>
             <h2 className="text-2xl font-semibold tracking-tight text-foreground">Welcome back</h2>
             <p className="text-sm text-muted-foreground">
@@ -1271,7 +1271,7 @@ export default function LeadGenDashboard() {
         <Link href="/" className={`h-16 border-b border-border flex items-center shrink-0 bg-card transition-all duration-300 hover:bg-muted/30 ${
           leftSidebarCollapsed ? 'px-4 justify-center' : 'px-6 gap-2.5'
         }`}>
-          <Image src="/logo_v2.png" alt="Aetheron Studio CRM" width={36} height={36} className="rounded-lg object-contain shadow-sm border border-border/50" style={{ width: '36px', height: '36px' }} />
+          <Image src="/aetheron_studio.png" alt="Aetheron Studio CRM" width={40} height={40} className="rounded-lg object-contain shadow-sm border border-border/50" />
           {!leftSidebarCollapsed && <span className="text-sm font-bold text-foreground tracking-tight">Aetheron Studio CRM</span>}
         </Link>
         
@@ -1374,7 +1374,7 @@ export default function LeadGenDashboard() {
         <SheetContent side="left" className="w-64 p-0">
           <SheetHeader className="h-16 border-b border-border flex flex-row items-center gap-2.5 px-6 space-y-0">
             <Link href="/" className="flex items-center gap-2.5 hover:opacity-80" onClick={() => setMobileMenuOpen(false)}>
-              <Image src="/logo_v2.png" alt="Aetheron Studio CRM" width={36} height={36} className="rounded-lg object-contain shadow-sm border border-border/50" style={{ width: '36px', height: '36px' }} />
+              <Image src="/aetheron_studio.png" alt="Aetheron Studio CRM" width={40} height={40} className="rounded-lg object-contain shadow-sm border border-border/50" />
               <SheetTitle className="text-sm font-bold tracking-tight">Aetheron Studio CRM</SheetTitle>
             </Link>
           </SheetHeader>
@@ -1472,7 +1472,7 @@ export default function LeadGenDashboard() {
               </Button>
               <div className="flex items-center gap-2.5">
                 <Link href="/" className="flex items-center gap-2 lg:hidden hover:opacity-80">
-                  <Image src="/logo_v2.png" alt="Aetheron Studio CRM" width={36} height={36} className="rounded-lg object-contain shadow-sm border border-border/50" style={{ width: '36px', height: '36px' }} />
+                  <Image src="/aetheron_studio.png" alt="Aetheron Studio CRM" width={40} height={40} className="rounded-lg object-contain shadow-sm border border-border/50" />
                 </Link>
                 <h1 className="text-sm font-bold text-foreground leading-none">
                   {activeTab === 'prospects' ? 'Prospects' : activeTab === 'crm' ? 'CRM' : activeTab === 'history' ? 'History' : 'User'}
@@ -2676,7 +2676,7 @@ export default function LeadGenDashboard() {
             <SheetDescription className="sr-only">Edit lead CRM details, notes, and outreach.</SheetDescription>
 
             {/* Drawer Scrollable Content */}
-            <div className={`flex-1 overflow-y-auto p-4 sm:p-6 ${notesSidebarWide ? 'lg:grid lg:grid-cols-2 lg:gap-6 lg:space-y-0' : 'space-y-6'}`}>
+            <div className={`flex-1 overflow-y-auto overflow-x-hidden w-full max-w-full p-4 sm:p-6 ${notesSidebarWide ? 'lg:grid lg:grid-cols-2 lg:gap-6 lg:space-y-0' : 'space-y-6'}`}>
               {editorValidationError && (
                 <div className="col-span-2 bg-destructive/10 border border-destructive/20 rounded-xl p-4 flex items-start gap-3 animate-in slide-in-from-top-2 duration-200">
                   <AlertTriangle className="w-5 h-5 text-destructive shrink-0 mt-0.5" />
@@ -2688,7 +2688,7 @@ export default function LeadGenDashboard() {
               )}
               
               {/* Left Column: Contact Enrichment & CRM Stats */}
-              <div className="space-y-6">
+              <div className="space-y-6 w-full max-w-full overflow-hidden min-w-0">
                 {/* Contact Information (Enrichment) */}
                 <Card className="bg-muted/30 border-border/50">
                   <CardContent className="p-4 space-y-4">
@@ -2732,7 +2732,7 @@ export default function LeadGenDashboard() {
                 </Card>
 
                 {/* Form fields */}
-                <div className="space-y-4">
+                <div className="space-y-4 w-full max-w-full overflow-hidden min-w-0">
                   {/* Status Dropdown — Shadcn Select */}
                   <div className="space-y-1.5">
                     <label className="text-xs font-bold text-foreground">Pipeline Stage</label>
@@ -2845,7 +2845,7 @@ export default function LeadGenDashboard() {
               </div>
 
               {/* Right Column: Outreach Assistant */}
-              <div className={`space-y-6 ${notesSidebarWide ? '' : 'pt-4 border-t border-border lg:pt-0 lg:border-t-0'}`}>
+              <div className={`space-y-6 w-full max-w-full overflow-hidden min-w-0 ${notesSidebarWide ? '' : 'pt-4 border-t border-border lg:pt-0 lg:border-t-0'}`}>
                 {/* OUTREACH CHANNELS PREVIEW & EXECUTION */}
                 <div className="space-y-4">
                   <span className="text-[10px] font-bold text-foreground uppercase tracking-wider block">
