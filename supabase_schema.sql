@@ -70,6 +70,16 @@ CREATE INDEX leads_tier_idx ON public.leads (tier);
 CREATE INDEX leads_intent_score_idx ON public.leads (intent_score DESC);
 CREATE INDEX leads_digital_gap_idx ON public.leads (digital_gap_score DESC);
 
+-- Optimized composite filter index
+CREATE INDEX IF NOT EXISTS idx_leads_core_filters ON public.leads (called, crm_status, tier);
+
+-- Sorting optimization
+CREATE INDEX IF NOT EXISTS idx_leads_score_desc ON public.leads (score DESC);
+
+-- GIN Trigram index for unified high-performance searches on business name & domain
+CREATE EXTENSION IF NOT EXISTS pg_trgm;
+CREATE INDEX IF NOT EXISTS idx_leads_search_combined ON public.leads USING gin ((name || ' ' || COALESCE(website, '')) gin_trgm_ops);
+
 -- 4. Create search_history table to track search runs
 CREATE TABLE public.search_history (
   id            BIGSERIAL PRIMARY KEY,

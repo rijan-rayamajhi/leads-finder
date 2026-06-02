@@ -1,43 +1,19 @@
 'use client';
 
+import React, { useState, useEffect } from 'react';
 import { Lead } from '@/types/lead';
 import { Button } from '@/components/ui/button';
-import { Badge } from '@/components/ui/badge';
 import { Card, CardContent } from '@/components/ui/card';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog';
 import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from '@/components/ui/table';
-import { 
-  Phone, 
-  Mail, 
-  Calendar, 
-  TrendingUp, 
-  MessageCircle, 
-  Star, 
-  ExternalLink,
   ChevronLeft,
   ChevronRight,
   ChevronsLeft,
   ChevronsRight,
-  UserCheck,
-  RefreshCw,
-  Notebook,
-  ChevronDown,
-  ChevronUp,
-  MapPin,
-  Globe,
-  Video,
-  AlertTriangle
+  UserCheck
 } from 'lucide-react';
-import React, { useState } from 'react';
-import { AuditChecklist, parseLeadReason, getTierBadge } from '@/components/audit-checklist';
+import { CRMLeadsTableDesktop } from './crm-leads-table-desktop';
+import { CRMLeadsTableMobile } from './crm-leads-table-mobile';
 
 type CRMLeadsTableProps = {
   leads: Lead[];
@@ -51,13 +27,38 @@ type CRMLeadsTableProps = {
   onPageSizeChangeAction: (size: number) => void;
 };
 
-const CRM_STATUSES = [
-  { value: 'no_answer', label: 'Attempted / No Answer', color: 'bg-red-500/10 text-red-600 border-red-500/20' },
-  { value: 'contacted', label: 'Spoke to Owner', color: 'bg-indigo-500/10 text-indigo-600 border-indigo-500/20' },
-  { value: 'meeting', label: 'Meeting Scheduled', color: 'bg-amber-500/10 text-amber-600 border-amber-500/20' },
-  { value: 'won', label: 'Closed Won', color: 'bg-emerald-500/10 text-emerald-600 border-emerald-500/20' },
-  { value: 'lost', label: 'Closed Lost', color: 'bg-slate-500/10 text-slate-600 border-slate-500/20' },
-];
+// Layout Gating Loading Skeleton Fallback to prevent layout shifts during hydration
+function TableSkeleton() {
+  return (
+    <div>
+      {/* Mobile & Tablet Skeleton */}
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:hidden gap-4 p-4">
+        {[1, 2, 3].map((i) => (
+          <Card key={i} className="p-5 animate-pulse space-y-4">
+            <CardContent className="p-0 space-y-4">
+              <div className="flex justify-between items-start">
+                <div className="h-5 bg-muted rounded w-2/3" />
+                <div className="h-6 bg-muted rounded-full w-12" />
+              </div>
+              <div className="space-y-2">
+                <div className="h-4 bg-muted rounded w-1/2" />
+                <div className="h-4 bg-muted rounded w-3/4" />
+              </div>
+              <div className="h-9 bg-muted rounded w-full" />
+            </CardContent>
+          </Card>
+        ))}
+      </div>
+
+      {/* Desktop Loading Skeleton */}
+      <div className="hidden lg:block p-6 space-y-4">
+        {[1, 2, 3].map((i) => (
+          <div key={i} className="h-16 bg-muted rounded-xl animate-pulse" />
+        ))}
+      </div>
+    </div>
+  );
+}
 
 export function CRMLeadsTable({
   leads,
@@ -70,67 +71,48 @@ export function CRMLeadsTable({
   onPageChangeAction: onPageChange,
   onPageSizeChangeAction: onPageSizeChange
 }: CRMLeadsTableProps) {
-  const [editingValueId, setEditingValueId] = useState<number | null>(null);
-  const [tempValue, setTempValue] = useState<string>('');
+  const [mounted, setMounted] = useState(false);
+  const [isDesktop, setIsDesktop] = useState(true);
   const [expandedRowId, setExpandedRowId] = useState<number | null>(null);
   const [revertDialogOpen, setRevertDialogOpen] = useState(false);
   const [revertLeadId, setRevertLeadId] = useState<number | null>(null);
 
-  const checkIsUpdateRequired = (lead: Lead) => {
-    if (lead.crm_status === 'contacted') {
-      return !lead.notes?.trim() || !lead.follow_up_at;
-    }
-    if (lead.crm_status === 'meeting') {
-      return !lead.meeting_notes?.trim() || !lead.follow_up_at || !lead.meeting_link?.trim();
-    }
-    if (lead.crm_status === 'won') {
-      return !lead.deal_value || lead.deal_value <= 0;
-    }
-    return false;
-  };
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setMounted(true);
 
-  const toggleRow = (id: number) => {
+    // Hydration-safe viewport checking
+    const mediaQuery = window.matchMedia('(min-width: 1024px)');
+    setIsDesktop(mediaQuery.matches);
+
+    const handleResize = (e: MediaQueryListEvent) => {
+      setIsDesktop(e.matches);
+    };
+
+    mediaQuery.addEventListener('change', handleResize);
+    return () => mediaQuery.removeEventListener('change', handleResize);
+  }, []);
+
+  const toggleRow = React.useCallback((id: number) => {
     setExpandedRowId(prev => prev === id ? null : id);
-  };
+  }, []);
 
-  const handleRevertConfirm = () => {
+  const handleRevertConfirm = React.useCallback(() => {
     if (revertLeadId !== null) {
       onUpdateLead(revertLeadId, { called: false });
     }
     setRevertDialogOpen(false);
     setRevertLeadId(null);
-  };
+  }, [revertLeadId, onUpdateLead]);
 
-  if (isLoading) {
-    return (
-      <div>
-        {/* Mobile & Tablet Loading Card Grid */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:hidden gap-4 p-4">
-          {[1, 2, 3].map((i) => (
-            <Card key={i} className="p-5 animate-pulse space-y-4">
-              <CardContent className="p-0 space-y-4">
-                <div className="flex justify-between items-start">
-                  <div className="h-5 bg-muted rounded w-2/3" />
-                  <div className="h-6 bg-muted rounded-full w-12" />
-                </div>
-                <div className="space-y-2">
-                  <div className="h-4 bg-muted rounded w-1/2" />
-                  <div className="h-4 bg-muted rounded w-3/4" />
-                </div>
-                <div className="h-9 bg-muted rounded w-full" />
-              </CardContent>
-            </Card>
-          ))}
-        </div>
+  const handleRevertTrigger = React.useCallback((id: number) => {
+    setRevertLeadId(id);
+    setRevertDialogOpen(true);
+  }, []);
 
-        {/* Desktop Loading Skeleton */}
-        <div className="hidden lg:block p-6 space-y-4">
-          {[1, 2, 3].map((i) => (
-            <div key={i} className="h-16 bg-muted rounded-xl animate-pulse" />
-          ))}
-        </div>
-      </div>
-    );
+  // Pre-mount gating: renders TableSkeleton on the server to protect layout structure & avoid shifts
+  if (!mounted || isLoading) {
+    return <TableSkeleton />;
   }
 
   if (totalLeads === 0) {
@@ -169,639 +151,32 @@ export function CRMLeadsTable({
     return pages;
   };
 
-  const getOutreachLinks = (lead: Lead) => {
-    const cleanPhone = lead.phone ? lead.phone.replace(/\D/g, '') : '';
-    const name = lead.name || 'Business Owner';
-    
-    const brokenSiteText = lead.website 
-      ? `your website (${lead.website}) appears to be broken or offline` 
-      : 'your business does not seem to have an active website';
-
-    const subject = encodeURIComponent(`Improving Online Visibility for ${name}`);
-    const emailBody = encodeURIComponent(
-      `Hi ${name},\n\nI recently came across your business listing. I noticed that ${brokenSiteText}, which could be causing you to miss out on local customers looking for your services.\n\nI specialize in helping local businesses launch fast, mobile-friendly websites that turn web visitors into paying customers.\n\nAre you available for a brief, 5-minute phone call this week to see how we can fix this?\n\nBest regards,\n[Your Name]`
-    );
-
-    const waText = encodeURIComponent(
-      `Hi ${name}, I noticed that ${brokenSiteText}. I build high-converting websites for businesses. Let me know if you would be open to a quick call to look at potential fixes.`
-    );
-
-    const emailRecipient = lead.email || '';
-    return {
-      tel: lead.phone ? `tel:${lead.phone}` : '#',
-      wa: cleanPhone ? `https://wa.me/91${cleanPhone}?text=${waText}` : '#',
-      mail: `mailto:${emailRecipient}?subject=${subject}&body=${emailBody}`
-    };
-  };
-
-  const getFollowUpStatus = (dateStr?: string | null) => {
-    if (!dateStr) return { label: 'No Date', color: 'text-muted-foreground' };
-    
-    const date = new Date(dateStr);
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-    
-    const compareDate = new Date(date);
-    compareDate.setHours(0, 0, 0, 0);
-    
-    const formatted = date.toLocaleDateString('en-IN', { day: '2-digit', month: 'short' });
-
-    if (compareDate.getTime() < today.getTime()) {
-      return { label: `Overdue (${formatted})`, color: 'text-red-500 font-bold bg-red-500/10 px-2 py-0.5 rounded border border-red-500/20' };
-    }
-    if (compareDate.getTime() === today.getTime()) {
-      return { label: `Due Today (${formatted})`, color: 'text-amber-600 font-bold bg-amber-500/10 px-2 py-0.5 rounded border border-amber-500/20 animate-pulse' };
-    }
-    return { label: formatted, color: 'text-muted-foreground font-semibold bg-muted px-2 py-0.5 rounded border border-border' };
-  };
-
   return (
     <div>
-      {/* Mobile & Tablet Card Layout */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:hidden gap-4 p-4">
-        {leads.map((lead, index) => {
-          const meta = parseLeadReason(lead.reason);
-          const outreach = getOutreachLinks(lead);
-          const fu = getFollowUpStatus(lead.follow_up_at);
-          const isExpanded = expandedRowId === lead.id;
-          
-          return (
-            <Card
-              key={lead.id}
-              className={`relative overflow-hidden transition-all duration-200 ${
-                isExpanded ? 'ring-1 ring-primary/20 border-primary/20' : ''
-              }`}
-            >
-              <div className="absolute top-0 left-0 bg-muted px-2 py-0.5 rounded-br-lg text-[9px] font-bold text-muted-foreground border-r border-b border-border flex items-center gap-1.5">
-                <span>#{(currentPage - 1) * pageSize + index + 1}</span>
-                {lead.created_at && (
-                  <span className="text-[8px] font-medium text-muted-foreground/80 border-l border-border/60 pl-1.5">
-                    {new Date(lead.created_at).toLocaleString('en-IN', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })}
-                  </span>
-                )}
-              </div>
-              <CardContent className="p-5 space-y-4">
-                {/* Title & Score with Phase A1 tier badge */}
-                <div className="flex justify-between items-start gap-2 pt-2">
-                  <div className="space-y-1">
-                    <h3 className="font-bold text-base text-foreground leading-tight">{lead.name}</h3>
-                    {meta.rating !== null && (
-                      <div className="flex items-center gap-1 text-[11px] text-amber-500 font-bold">
-                        <Star className="w-3 h-3 fill-current" />
-                        <span>{meta.rating} ({meta.reviews || 0} reviews)</span>
-                      </div>
-                    )}
-                    <div className="text-[10px] text-muted-foreground flex flex-col gap-0.5 pt-1 font-medium">
-                      {lead.phone && <span className="flex items-center gap-1">📞 {lead.phone}</span>}
-                      {lead.email && <span className="flex items-center gap-1 text-rose-500">✉️ {lead.email}</span>}
-                    </div>
-                  </div>
-                  {/* Phase A1 Score & Tier Badge */}
-                  <div className="flex flex-col items-end gap-1 shrink-0">
-                    <Badge variant="secondary" className="bg-emerald-500/10 text-emerald-600 border-emerald-500/20 text-[10px]">
-                      Score: {lead.score}
-                    </Badge>
-                    {(() => {
-                      const badge = getTierBadge(lead.tier ?? lead.problems?.tier);
-                      return (
-                        <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full border ${badge.color}`}>
-                          {badge.label}
-                        </span>
-                      );
-                    })()}
-                  </div>
-                </div>
-
-                {/* CRM controls */}
-                <div className="pt-3 border-t border-border/50 grid grid-cols-2 gap-3">
-                  <div className="space-y-1">
-                    <span className="text-[10px] uppercase font-bold text-muted-foreground tracking-wider block">Pipeline Stage</span>
-                    <Select 
-                      value={lead.crm_status || 'no_answer'} 
-                      onValueChange={(v) => onUpdateLead(lead.id, { crm_status: v as Lead['crm_status'] })}
-                    >
-                      <SelectTrigger className="h-11 lg:h-10 text-xs lg:text-sm font-semibold">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {CRM_STATUSES.map(st => (
-                          <SelectItem key={st.value} value={st.value}>{st.label}</SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-
-                  <div className="space-y-1">
-                    <span className="text-[10px] uppercase font-bold text-muted-foreground tracking-wider block">Est. Deal Value</span>
-                    <div className="relative">
-                      <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-xs font-bold text-muted-foreground">$</span>
-                      <input
-                        type="number"
-                        value={lead.deal_value || 0}
-                        onChange={(e) => onUpdateLead(lead.id, { deal_value: Number(e.target.value) || 0 })}
-                        className="w-full h-11 lg:h-10 text-xs lg:text-sm font-bold pl-5 pr-2 bg-background border border-input rounded-md focus-visible:ring-2 focus-visible:ring-ring"
-                        placeholder="0"
-                      />
-                    </div>
-                  </div>
-                </div>
-
-                {checkIsUpdateRequired(lead) && (
-                  <Button
-                    variant="outline"
-                    onClick={() => onOpenNotes(lead)}
-                    className="w-full h-10 text-[10px] font-bold border-rose-500/20 text-rose-500 bg-rose-500/5 hover:bg-rose-500/10 flex items-center justify-center gap-1.5 rounded-lg animate-pulse"
-                  >
-                    <AlertTriangle className="w-3.5 h-3.5 text-rose-500 shrink-0" />
-                    <span>Update Required: Missing Stage Details</span>
-                  </Button>
-                )}
-
-                {/* Follow-up and Notes Preview */}
-                <div className="space-y-2 text-xs text-muted-foreground pt-1">
-                  <div className="flex items-center justify-between">
-                    <span className="flex items-center gap-1 text-[10px] uppercase font-bold tracking-wider">
-                      <Calendar className="w-3.5 h-3.5" /> Next Follow-up
-                    </span>
-                    <span className={`text-xs ${fu.color}`}>{fu.label}</span>
-                  </div>
-
-                   {lead.crm_status === 'meeting' && lead.meeting_notes ? (
-                    <div className="bg-amber-500/5 p-2.5 rounded-lg border border-amber-500/10 space-y-1.5 animate-in fade-in duration-200">
-                      <p className="text-[10px] uppercase font-bold text-amber-600 dark:text-amber-400 tracking-wider flex items-center gap-1">
-                        <Video className="w-3 h-3 text-amber-500" /> Meeting Notes
-                      </p>
-                      <p className="italic text-foreground line-clamp-2 leading-relaxed text-xs">{lead.meeting_notes}</p>
-                      {lead.meeting_link && (
-                        <a
-                          href={lead.meeting_link.startsWith('http') ? lead.meeting_link : `https://${lead.meeting_link}`}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="inline-flex items-center gap-1 text-[10px] font-extrabold text-amber-600 dark:text-amber-400 hover:underline pt-0.5"
-                        >
-                          <ExternalLink className="w-3.5 h-3.5" /> Join Meeting Link
-                        </a>
-                      )}
-                    </div>
-                  ) : lead.notes ? (
-                    <div className="bg-muted/40 p-2.5 rounded-lg border border-border/40">
-                      <p className="text-[10px] uppercase font-bold text-muted-foreground tracking-wider mb-1 flex items-center gap-1">
-                        <Notebook className="w-3 h-3 text-muted-foreground" /> Latest Note
-                      </p>
-                      <p className="italic text-foreground line-clamp-2 leading-relaxed text-xs">{lead.notes}</p>
-                    </div>
-                  ) : null}
-                </div>
-
-                {/* View Audit Report Action toggle */}
-                <Button
-                  variant="outline"
-                  onClick={() => toggleRow(lead.id)}
-                  className="w-full h-11 text-xs font-bold bg-primary/5 hover:bg-primary/10 border-primary/10 text-primary flex items-center justify-between px-4"
-                >
-                  <span>{isExpanded ? 'Hide Audit Report' : 'Inspect Audit Report'}</span>
-                  {isExpanded ? (
-                    <ChevronUp className="w-4 h-4 ml-auto" />
-                  ) : (
-                    <ChevronDown className="w-4 h-4 ml-auto" />
-                  )}
-                </Button>
-
-                {isExpanded && (
-                  <div className="space-y-4 pt-3 border-t border-border/50 animate-in slide-in-from-top-2 duration-200">
-                    <AuditChecklist 
-                      lead={lead}
-                      reasonText={meta.text} 
-                      score={lead.score} 
-                      revenueScore={lead.revenue_score}
-                      contactScore={lead.contact_score}
-                      intentNorm={lead.problems?.intentNorm ?? lead.intent_score ?? 0}
-                      digitalGapNorm={lead.problems?.digitalGapNorm ?? lead.digital_gap_score ?? 0}
-                    />
-
-                    {meta.address && (
-                      <div className="flex items-start gap-2 bg-muted/40 p-3 rounded-lg border border-border/50 text-xs">
-                        <MapPin className="w-4 h-4 text-rose-500 fill-rose-500/10 shrink-0 mt-0.5" />
-                        <span className="text-muted-foreground leading-normal">
-                          <strong>Address:</strong> {meta.address}
-                        </span>
-                      </div>
-                    )}
-
-                    {meta.maps_url && (
-                      <Button variant="outline" asChild className="w-full h-11 text-xs font-bold border-rose-500/20 text-rose-500 bg-rose-500/5 hover:bg-rose-500/10 flex items-center justify-center">
-                        <a href={meta.maps_url} target="_blank" rel="noopener noreferrer">
-                          <ExternalLink className="w-4 h-4 mr-1.5" />
-                          View Google Maps Listing
-                        </a>
-                      </Button>
-                    )}
-                  </div>
-                )}
-
-                {/* Action Buttons */}
-                <div className="flex items-center justify-between gap-2 pt-2 border-t border-border/50">
-                  <div className="flex items-center gap-2">
-                    {lead.phone ? (
-                      <Button variant="outline" size="icon" asChild className="h-10 w-10 text-primary">
-                        <a href={outreach.tel} className="flex items-center justify-center"><Phone className="w-4 h-4" /></a>
-                      </Button>
-                    ) : (
-                      <span className="h-10 w-10 flex items-center justify-center text-muted-foreground/30 text-xs border border-dashed border-border rounded-lg">-</span>
-                    )}
-                    {lead.phone ? (
-                      <Button variant="outline" size="icon" asChild className="h-10 w-10 text-emerald-600">
-                        <a href={outreach.wa} target="_blank" rel="noopener noreferrer" className="flex items-center justify-center"><MessageCircle className="w-4 h-4" /></a>
-                      </Button>
-                    ) : (
-                      <span className="h-10 w-10 flex items-center justify-center text-muted-foreground/30 text-xs border border-dashed border-border rounded-lg">-</span>
-                    )}
-                    <Button variant="outline" size="icon" asChild className="h-10 w-10 text-rose-500">
-                      <a href={outreach.mail} className="flex items-center justify-center"><Mail className="w-4 h-4" /></a>
-                    </Button>
-                  </div>
-                  <Button 
-                    variant="outline"
-                    onClick={() => onOpenNotes(lead)} 
-                    className="h-10 text-xs font-bold gap-1 bg-primary/5 hover:bg-primary/10 border-primary/20 text-primary flex items-center justify-center px-3"
-                  >
-                    <Notebook className="w-3.5 h-3.5" /> <span>Notes</span>
-                  </Button>
-                </div>
-
-                {/* Reset to uncalled */}
-                <button
-                  onClick={() => {
-                    setRevertLeadId(lead.id);
-                    setRevertDialogOpen(true);
-                  }}
-                  className="w-full text-center text-xs font-bold text-muted-foreground hover:text-destructive transition-colors flex items-center justify-center gap-1 py-3 mt-1.5"
-                >
-                  <RefreshCw className="w-3 h-3" /> Revert back to Prospects
-                </button>
-              </CardContent>
-            </Card>
-          );
-        })}
-      </div>
-
-      {/* Desktop Table View */}
-      <div className="hidden lg:block w-full overflow-x-auto border-t border-border/60">
-        <Table className="min-w-[1250px] w-full table-fixed">
-          <TableHeader>
-            <TableRow>
-              <TableHead className="w-12 pl-4"></TableHead>
-              <TableHead className="w-14 font-semibold text-xs uppercase tracking-wider text-muted-foreground">S.N.</TableHead>
-              <TableHead className="font-semibold text-xs uppercase tracking-wider text-muted-foreground w-[260px]">Business Details</TableHead>
-              <TableHead className="font-semibold text-xs uppercase tracking-wider text-muted-foreground w-44">Contact Details</TableHead>
-              <TableHead className="font-semibold text-xs uppercase tracking-wider text-muted-foreground w-40">Pipeline Stage</TableHead>
-              <TableHead className="font-semibold text-xs uppercase tracking-wider text-muted-foreground w-32">Est. Revenue</TableHead>
-              <TableHead className="font-semibold text-xs uppercase tracking-wider text-muted-foreground w-36 text-center">Follow Up Date</TableHead>
-              <TableHead className="font-semibold text-xs uppercase tracking-wider text-muted-foreground w-36 text-center">Outreach Channels</TableHead>
-              <TableHead className="font-semibold text-xs uppercase tracking-wider text-muted-foreground w-[260px]">Latest Call Notes</TableHead>
-              <TableHead className="font-semibold text-xs uppercase tracking-wider text-muted-foreground w-36">Acquired At</TableHead>
-              <TableHead className="text-right font-semibold text-xs uppercase tracking-wider text-muted-foreground pr-4 w-40">Actions</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {leads.map((lead, index) => {
-              const meta = parseLeadReason(lead.reason);
-              const outreach = getOutreachLinks(lead);
-              const fu = getFollowUpStatus(lead.follow_up_at);
-              const isExpanded = expandedRowId === lead.id;
-              
-              return (
-                <React.Fragment key={lead.id}>
-                  <TableRow
-                    className={`group hover:bg-muted/10 transition-colors duration-200 border-b border-muted/30 ${
-                      isExpanded ? 'bg-muted/5' : ''
-                    }`}
-                  >
-                    <TableCell className="py-4 pl-4 w-12 text-center">
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        onClick={() => toggleRow(lead.id)}
-                        className="h-9 w-9"
-                        title={isExpanded ? "Hide detailed audit" : "Inspect marketing audit details"}
-                      >
-                        {isExpanded ? (
-                          <ChevronUp className="w-4 h-4 text-primary" />
-                        ) : (
-                          <ChevronDown className="w-4 h-4" />
-                        )}
-                      </Button>
-                    </TableCell>
-                    <TableCell className="font-semibold text-muted-foreground py-4 text-sm">
-                      {(currentPage - 1) * pageSize + index + 1}
-                    </TableCell>
-
-                    <TableCell className="py-4">
-                      <div className="flex flex-col gap-1 max-w-sm">
-                        <span className="font-bold text-foreground text-base leading-snug">{lead.name || 'N/A'}</span>
-                        {meta.rating !== null && (
-                          <div className="flex items-center gap-1.5 text-xs text-amber-500 font-bold mt-0.5">
-                            <Star className="w-4 h-4 fill-current" />
-                            <span>{meta.rating}</span>
-                            <span className="text-muted-foreground font-normal">({meta.reviews || 0} reviews)</span>
-                          </div>
-                        )}
-                        {meta.address && (
-                          <span className="text-xs text-muted-foreground truncate leading-normal mt-0.5" title={meta.address}>
-                            {meta.address}
-                          </span>
-                        )}
-                      </div>
-                    </TableCell>
-
-                    <TableCell className="py-4">
-                      <div className="flex flex-col gap-1.5">
-                        {/* Phone */}
-                        {lead.phone ? (
-                          <a
-                            href={`tel:${lead.phone}`}
-                            className="inline-flex items-center gap-1.5 text-primary hover:underline hover:text-primary/80 transition-colors font-semibold text-sm"
-                          >
-                            <Phone className="w-4 h-4 text-muted-foreground" />
-                            {lead.phone}
-                          </a>
-                        ) : (
-                          <span className="text-xs text-muted-foreground">No Phone</span>
-                        )}
-                        {/* Email */}
-                        {lead.email ? (
-                          <a
-                            href={`mailto:${lead.email}`}
-                            className="inline-flex items-center gap-1.5 text-rose-600 dark:text-rose-400 hover:underline transition-colors font-semibold text-sm truncate max-w-[150px]"
-                            title={lead.email}
-                          >
-                            <Mail className="w-4 h-4 text-muted-foreground" />
-                            Email
-                          </a>
-                        ) : null}
-                        {/* Website */}
-                        {lead.website ? (
-                          <a
-                            href={lead.website.startsWith('http') ? lead.website : `https://${lead.website}`}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="inline-flex items-center gap-1.5 text-emerald-600 hover:text-emerald-700 dark:text-emerald-400 dark:hover:text-emerald-300 hover:underline transition-colors font-semibold text-sm truncate max-w-[150px]"
-                            title={lead.website}
-                          >
-                            <Globe className="w-4 h-4 text-muted-foreground" />
-                            Website
-                          </a>
-                        ) : (
-                          <Badge variant="secondary" className="text-xs w-fit mt-1">No Website</Badge>
-                        )}
-                      </div>
-                    </TableCell>
-
-                    {/* Status Dropdown — Shadcn Select */}
-                    <TableCell className="py-4">
-                      <div className="space-y-1.5 flex flex-col justify-center">
-                        <Select 
-                          value={lead.crm_status || 'no_answer'}
-                          onValueChange={(v) => onUpdateLead(lead.id, { crm_status: v as Lead['crm_status'] })}
-                        >
-                          <SelectTrigger className="h-10 text-sm font-semibold w-full">
-                            <SelectValue />
-                          </SelectTrigger>
-                          <SelectContent>
-                            {CRM_STATUSES.map(st => (
-                              <SelectItem key={st.value} value={st.value}>{st.label}</SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
-                        {checkIsUpdateRequired(lead) && (
-                          <button
-                            onClick={() => onOpenNotes(lead)}
-                            className="text-[9px] font-bold text-rose-500 hover:text-rose-600 bg-rose-500/10 border border-rose-500/20 px-2 py-0.5 rounded flex items-center justify-center gap-1 w-full transition-colors animate-pulse"
-                            title="Click to resolve missing mandatory fields"
-                          >
-                            <AlertTriangle className="w-2.5 h-2.5 text-rose-500 shrink-0" />
-                            <span>Update Required</span>
-                          </button>
-                        )}
-                      </div>
-                    </TableCell>
-
-                    {/* Deal Value */}
-                    <TableCell className="py-4">
-                      {editingValueId === lead.id ? (
-                        <div className="flex items-center gap-1 animate-in fade-in duration-100">
-                          <span className="text-sm font-bold text-muted-foreground">$</span>
-                          <input
-                            type="number"
-                            value={tempValue}
-                            onChange={(e) => setTempValue(e.target.value)}
-                            onBlur={async () => {
-                              setEditingValueId(null);
-                              await onUpdateLead(lead.id, { deal_value: Number(tempValue) || 0 });
-                            }}
-                            onKeyDown={async (e) => {
-                              if (e.key === 'Enter') {
-                                setEditingValueId(null);
-                                await onUpdateLead(lead.id, { deal_value: Number(tempValue) || 0 });
-                              }
-                            }}
-                            className="w-24 h-9 text-sm font-bold border border-input bg-background rounded-md px-1.5 focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                            autoFocus
-                          />
-                        </div>
-                      ) : (
-                        <div
-                          onClick={() => {
-                            setEditingValueId(lead.id);
-                            setTempValue(String(lead.deal_value || 0));
-                          }}
-                          className="flex items-center gap-1.5 cursor-pointer hover:bg-muted/40 p-2 rounded border border-transparent hover:border-border/50 w-fit transition-all"
-                          title="Click to edit deal value"
-                        >
-                          <TrendingUp className="w-4 h-4 text-muted-foreground shrink-0" />
-                          <span className="text-sm font-extrabold text-foreground">
-                            ${(lead.deal_value || 0).toLocaleString()}
-                          </span>
-                        </div>
-                      )}
-                    </TableCell>
-
-                    {/* Follow-up Alerts */}
-                    <TableCell className="py-4 text-center">
-                      <span className={`text-sm ${fu.color}`}>{fu.label}</span>
-                    </TableCell>
-
-                    {/* Outreach Quick Links */}
-                    <TableCell className="py-4 text-center">
-                      <div className="inline-flex items-center gap-1.5 border border-border/80 p-1.5 rounded-lg bg-muted/20">
-                        {lead.phone ? (
-                          <Button variant="outline" size="icon" asChild className="h-9 w-9">
-                            <a href={outreach.tel} title={`Call client: ${lead.phone}`}>
-                              <Phone className="w-4 h-4 text-primary" />
-                            </a>
-                          </Button>
-                        ) : (
-                          <span className="h-9 w-9 flex items-center justify-center text-muted-foreground/30 text-xs">-</span>
-                        )}
-
-                        {lead.phone ? (
-                          <Button variant="outline" size="icon" asChild className="h-9 w-9">
-                            <a href={outreach.wa} target="_blank" rel="noopener noreferrer" title="Open pre-filled WhatsApp audit script">
-                              <MessageCircle className="w-4 h-4 text-emerald-600" />
-                            </a>
-                          </Button>
-                        ) : (
-                          <span className="h-9 w-9 flex items-center justify-center text-muted-foreground/30 text-xs">-</span>
-                        )}
-
-                        <Button variant="outline" size="icon" asChild className="h-9 w-9">
-                          <a href={outreach.mail} title="Send customizable cold pitch email template">
-                            <Mail className="w-4 h-4 text-rose-500" />
-                          </a>
-                        </Button>
-                      </div>
-                    </TableCell>
-
-                    {/* Notes Preview */}
-                    <TableCell className="py-4 text-sm">
-                      {lead.crm_status === 'meeting' ? (
-                        <div className="space-y-1 flex flex-col justify-start">
-                          <p className="text-muted-foreground line-clamp-2 leading-relaxed italic font-medium" title={lead.meeting_notes || 'No meeting notes taken yet.'}>
-                            {lead.meeting_notes || 'No meeting notes taken yet. Click notes button to add meeting notes.'}
-                          </p>
-                          {lead.meeting_link && (
-                            <a
-                              href={lead.meeting_link.startsWith('http') ? lead.meeting_link : `https://${lead.meeting_link}`}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="inline-flex items-center gap-1.5 text-[10px] font-extrabold text-amber-600 dark:text-amber-400 hover:underline mt-1 bg-amber-500/5 border border-amber-500/10 px-2 py-0.5 rounded w-fit"
-                            >
-                              <Video className="w-3 h-3" /> Join Meeting
-                            </a>
-                          )}
-                        </div>
-                      ) : (
-                        <p className="text-muted-foreground line-clamp-2 leading-relaxed italic font-medium" title={lead.notes || 'No notes taken yet.'}>
-                          {lead.notes || 'No notes taken yet. Click notes button or double-click row to add notes.'}
-                        </p>
-                      )}
-                    </TableCell>
-
-                    <TableCell className="py-4 text-xs font-medium text-muted-foreground leading-normal">
-                      {lead.created_at ? new Date(lead.created_at).toLocaleString('en-IN', {
-                        dateStyle: 'medium',
-                        timeStyle: 'short'
-                      }) : 'N/A'}
-                    </TableCell>
-
-                    {/* Actions */}
-                    <TableCell className="py-4 text-right pr-4 space-x-2 whitespace-nowrap">
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => onOpenNotes(lead)}
-                        className="text-xs font-bold h-9 px-3 border-primary/20 bg-primary/5 hover:bg-primary/10 text-primary"
-                      >
-                        <Notebook className="w-3.5 h-3.5 mr-1" /> Note History
-                      </Button>
-
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        onClick={() => {
-                          setRevertLeadId(lead.id);
-                          setRevertDialogOpen(true);
-                        }}
-                        className="h-9 w-9 hover:bg-destructive/10 text-muted-foreground hover:text-destructive"
-                        title="Move back to prospects"
-                      >
-                        <RefreshCw className="w-4 h-4" />
-                      </Button>
-                    </TableCell>
-                  </TableRow>
-
-                  {isExpanded && (
-                    <TableRow className="bg-muted/5 hover:bg-muted/5 border-b border-muted/30 animate-in fade-in duration-200">
-                      <TableCell colSpan={11} className="p-6">
-                        <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-                          <div className="lg:col-span-7">
-                            <Card>
-                              <CardContent className="p-5">
-                                <AuditChecklist 
-                                  lead={lead}
-                                  reasonText={meta.text} 
-                                  score={lead.score} 
-                                  revenueScore={lead.revenue_score}
-                                  contactScore={lead.contact_score}
-                                  intentNorm={lead.problems?.intentNorm ?? lead.intent_score ?? 0}
-                                  digitalGapNorm={lead.problems?.digitalGapNorm ?? lead.digital_gap_score ?? 0}
-                                />
-                              </CardContent>
-                            </Card>
-                          </div>
-                          <div className="lg:col-span-5">
-                            <Card>
-                              <CardContent className="p-5 flex flex-col justify-between space-y-4">
-                                <div className="space-y-3.5">
-                                  <h4 className="text-xs font-bold text-foreground uppercase tracking-wider flex items-center gap-1.5 border-b border-border pb-2">
-                                    <MapPin className="w-4 h-4 text-rose-500 fill-rose-500/10" /> Location & Places Insights
-                                  </h4>
-                                  
-                                  {meta.address ? (
-                                    <div className="space-y-1">
-                                      <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider block">Physical Address</span>
-                                      <span className="text-xs font-semibold text-foreground leading-normal block">{meta.address}</span>
-                                    </div>
-                                  ) : (
-                                    <span className="text-xs text-muted-foreground italic">No address metadata found.</span>
-                                  )}
-
-                                  {meta.rating !== null && (
-                                    <div className="space-y-1 pt-1.5">
-                                      <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider block">Google Places Rating</span>
-                                      <div className="flex items-center gap-2">
-                                        <div className="flex items-center text-amber-500 font-bold text-sm">
-                                          <Star className="w-4 h-4 fill-current mr-1" />
-                                          {meta.rating}
-                                        </div>
-                                        <span className="text-xs text-muted-foreground">({meta.reviews || 0} customer reviews)</span>
-                                      </div>
-                                    </div>
-                                  )}
-                                </div>
-
-                                <div className="pt-3 border-t border-border flex flex-col sm:flex-row gap-2.5">
-                                  {meta.maps_url && (
-                                    <Button variant="outline" asChild className="flex-1 text-xs font-bold border-rose-500/20 text-rose-500 bg-rose-500/5 hover:bg-rose-500/10">
-                                      <a href={meta.maps_url} target="_blank" rel="noopener noreferrer">
-                                        <ExternalLink className="w-4 h-4 mr-1.5" />
-                                        View on Google Maps
-                                      </a>
-                                    </Button>
-                                  )}
-                                  
-                                  {lead.phone && (
-                                    <Button variant="outline" asChild className="flex-1 text-xs font-bold border-primary/20 text-primary bg-primary/5 hover:bg-primary/10">
-                                      <a href={`tel:${lead.phone}`}>
-                                        <Phone className="w-4 h-4 mr-1.5" />
-                                        Call Business
-                                      </a>
-                                    </Button>
-                                  )}
-                                </div>
-                              </CardContent>
-                            </Card>
-                          </div>
-                        </div>
-                      </TableCell>
-                    </TableRow>
-                  )}
-                </React.Fragment>
-              );
-            })}
-          </TableBody>
-        </Table>
-      </div>
+      {/* Dynamic JS View Selection — Zero Hydration Mismatches */}
+      {isDesktop ? (
+        <CRMLeadsTableDesktop
+          leads={leads}
+          onUpdateLeadAction={onUpdateLead}
+          onOpenNotesAction={onOpenNotes}
+          currentPage={currentPage}
+          pageSize={pageSize}
+          expandedRowId={expandedRowId}
+          toggleRow={toggleRow}
+          onRevertTrigger={handleRevertTrigger}
+        />
+      ) : (
+        <CRMLeadsTableMobile
+          leads={leads}
+          onUpdateLeadAction={onUpdateLead}
+          onOpenNotesAction={onOpenNotes}
+          currentPage={currentPage}
+          pageSize={pageSize}
+          expandedRowId={expandedRowId}
+          toggleRow={toggleRow}
+          onRevertTrigger={handleRevertTrigger}
+        />
+      )}
 
       {/* Pagination Controls */}
       <div className="border-t border-border px-4 py-4 flex flex-col sm:flex-row items-center justify-between gap-4 bg-muted/10">

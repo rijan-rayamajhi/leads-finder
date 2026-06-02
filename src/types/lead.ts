@@ -83,3 +83,14 @@ export type PipelineResult = {
   skipped_dedup: number;
   skipped_score: number;
 };
+
+export interface UserProfile {
+  id: string;
+  email: string;
+  full_name: string;
+  avatar_url: string;
+  role: 'super_admin' | 'user';
+  status: 'pending' | 'approved' | 'rejected' | 'disabled' | 'blocked';
+  created_at: string;
+  updated_at: string;
+}

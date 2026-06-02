@@ -1,6 +1,8 @@
 'use client';
 
 import { useState, useEffect, useRef } from 'react';
+import useSWR from 'swr';
+import { useDebounce } from '@/hooks/useDebounce';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -8,11 +10,11 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/com
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from '@/components/ui/sheet';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Alert, AlertTitle, AlertDescription } from '@/components/ui/alert';
-import { LeadsTable } from '@/components/leads-table';
-import { CRMLeadsTable } from '@/components/crm-leads-table';
-import { Lead, PipelineResult } from '@/types/lead';
+import { Alert, AlertDescription } from '@/components/ui/alert';
+import { LeadsSection } from '@/components/leads-section';
+import { CRMSection } from '@/components/crm-section';
+import { AdminPanel } from '@/components/admin-panel';
+import { Lead, PipelineResult, UserProfile } from '@/types/lead';
 import { SearchHistoryItem } from '@/types/history';
 import { supabaseClient } from '@/lib/supabaseClient';
 import { Session } from '@supabase/supabase-js';
@@ -20,19 +22,12 @@ import { Session } from '@supabase/supabase-js';
 import Image from 'next/image';
 import Link from 'next/link';
 import { 
-  Search, 
   Loader2, 
-  Filter, 
-  CheckCircle2, 
-  AlertTriangle, 
   Menu, 
-  X, 
   Database,
   History,
   UserCheck,
-  TrendingUp,
   Calendar,
-  DollarSign,
   Notebook,
   MessageCircle,
   Mail,
@@ -42,42 +37,31 @@ import {
   ChevronLeft,
   ChevronRight,
   RefreshCw,
-  Phone,
   Flame,
-  Target,
-  Award,
-  Sparkles,
   Check,
-  Zap,
   Video,
   Users,
   LogOut,
   Lock,
   ShieldAlert,
-  ShieldCheck,
-  Ban
+  Ban,
+  AlertTriangle
 } from 'lucide-react';
 
 
 
-const SUGGESTIONS = [
-  'salons in mumbai',
-  'dentists in bangalore',
-  'gyms in delhi',
-  'coaching classes in pune',
-  'real estate agents in hyderabad',
-];
-
-interface UserProfile {
-  id: string;
-  email: string;
-  full_name: string;
-  avatar_url: string;
-  role: 'super_admin' | 'user';
-  status: 'pending' | 'approved' | 'rejected' | 'disabled' | 'blocked';
-  created_at: string;
-  updated_at: string;
-}
+const fetcher = async (url: string, token?: string) => {
+  const headers: HeadersInit = {};
+  if (token) {
+    headers['Authorization'] = `Bearer ${token}`;
+  }
+  const res = await fetch(url, { headers });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.error || 'Failed to fetch data');
+  }
+  return res.json();
+};
 
 function SafeAvatar({ src, name, email, className }: { src: string | null | undefined; name: string | null; email: string | null; className?: string }) {
   const [prevSrc, setPrevSrc] = useState(src);
@@ -119,18 +103,13 @@ export default function LeadGenDashboard() {
   const [users, setUsers] = useState<UserProfile[]>([]);
   const [isLoadingUsers, setIsLoadingUsers] = useState(false);
   const [usersRefreshTrigger, setUsersRefreshTrigger] = useState(0);
-  const [userSearchQuery, setUserSearchQuery] = useState('');
-  const [userStatusFilter, setUserStatusFilter] = useState<string>('all');
 
 
   const [query, setQuery] = useState('');
   const [showAll, setShowAll] = useState(false);
   const [intent, setIntent] = useState<'high' | 'low' | 'all'>('high');
-  const [leads, setLeads] = useState<Lead[]>([]);
-  const [isLoadingLeads, setIsLoadingLeads] = useState(true);
   const [isRunningPipeline, setIsRunningPipeline] = useState(false);
   const [callingId, setCallingId] = useState<number | null>(null);
-  const [refreshTrigger, setRefreshTrigger] = useState(0);
   
   // Advanced Pipeline UI State Variables
   const [tierFilter, setTierFilter] = useState<string>('all');
@@ -138,12 +117,88 @@ export default function LeadGenDashboard() {
   const [cityFilter, setCityFilter] = useState<string>('all');
   const [sortBy, setSortBy] = useState<string>('final_score');
 
-  // CRM leads and loading state
-  const [crmLeads, setCrmLeads] = useState<Lead[]>([]);
-  const [isLoadingCrm, setIsLoadingCrm] = useState(true);
-  const [crmRefreshTrigger, setCrmRefreshTrigger] = useState(0);
+  // CRM status filter and selection states
   const [crmStatusFilter, setCrmStatusFilter] = useState<string>('all');
   const [selectedCRMLead, setSelectedCRMLead] = useState<Lead | null>(null);
+
+  // Active pagination states declared here to prevent SWR Key TDZ issues
+  const [currentPage, setCurrentPage] = useState(1);
+  const [pageSize, setPageSize] = useState(10);
+
+  // Search filter query state with debounced layer to prevent typing latency
+  const [crmSearchQuery, setCrmSearchQuery] = useState('');
+  const debouncedCrmSearch = useDebounce(crmSearchQuery, 300);
+
+  // Geographic prospects source query history filters
+  const [searchFilter, setSearchFilter] = useState<string | null>(null);
+
+  // 1. SWR fetch configurations for Prospects database
+  const shouldFetchProspects = !!session && profile?.status === 'approved';
+  const prospectsSWRKey = shouldFetchProspects
+    ? `/api/leads?called=false&page=${currentPage}&limit=${pageSize}&intent=${intent}&showAll=${showAll}&tier=${tierFilter}&niche=${nicheFilter}&city=${cityFilter}&sortBy=${sortBy}${searchFilter ? `&searchFilter=${encodeURIComponent(searchFilter)}` : ''}`
+    : null;
+
+  const { data: prospectsData, error: prospectsError, isLoading: isLoadingLeads, mutate: mutateProspects } = useSWR(
+    prospectsSWRKey ? [prospectsSWRKey, session?.access_token] : null,
+    ([url, token]) => fetcher(url, token),
+    {
+      revalidateOnFocus: false,
+      dedupingInterval: 5000,
+      keepPreviousData: true
+    }
+  );
+
+  const stableProspectsData = prospectsData;
+  const paginatedLeads = stableProspectsData?.leads || [];
+  const totalLeads = stableProspectsData?.count || 0;
+
+  // Fast direct server aggregate metrics for Prospects
+  const prospectsStats = stableProspectsData?.stats || {
+    total: 0,
+    pendingCalls: 0,
+    hotProspects: 0,
+    avgQuality: 0,
+    hotLeads: 0,
+    avgIntent: 0
+  };
+
+  // 2. SWR fetch configurations for CRM pipeline leads
+  const shouldFetchCRM = !!session && profile?.status === 'approved';
+  const crmSWRKey = shouldFetchCRM
+    ? `/api/leads?called=true&page=${currentPage}&limit=${pageSize}&search=${encodeURIComponent(debouncedCrmSearch)}&tier=${tierFilter}&niche=${nicheFilter}&city=${cityFilter}&sortBy=${sortBy}&status=${crmStatusFilter}`
+    : null;
+
+  const { data: crmData, error: crmError, isLoading: isLoadingCrm, mutate: mutateCrm } = useSWR(
+    crmSWRKey ? [crmSWRKey, session?.access_token] : null,
+    ([url, token]) => fetcher(url, token),
+    {
+      revalidateOnFocus: false,
+      dedupingInterval: 5000,
+      keepPreviousData: true
+    }
+  );
+
+  const stableCrmData = crmData;
+  const paginatedCrmLeads = stableCrmData?.leads || [];
+  const totalCrmLeads = stableCrmData?.count || 0;
+
+  // Fast direct server aggregate metrics
+  const crmStats = stableCrmData?.stats || {
+    pipelineValue: 0,
+    wonRevenue: 0,
+    closeRate: 0,
+    pendingFollowUps: 0,
+    activeCount: 0,
+    wonCount: 0,
+    closedCount: 0
+  };
+  const pipelineValue = crmStats.pipelineValue;
+  const wonRevenue = crmStats.wonRevenue;
+  const closeRate = crmStats.closeRate;
+  const pendingFollowUps = crmStats.pendingFollowUps;
+  const activeCrmDealsCount = crmStats.activeCount || 0;
+  const wonDealsCount = crmStats.wonCount || 0;
+  const totalClosedCount = crmStats.closedCount || 0;
   
   // CRM Lead Notes Editor fields
   const [editorStatus, setEditorStatus] = useState<'no_answer' | 'contacted' | 'meeting' | 'won' | 'lost'>('no_answer');
@@ -198,7 +253,7 @@ export default function LeadGenDashboard() {
   }, []);
 
 
-  const [searchFilter, setSearchFilter] = useState<string | null>(null);
+
 
   // Pipeline result state
   const [pipelineResult, setPipelineResult] = useState<PipelineResult | null>(null);
@@ -211,9 +266,7 @@ export default function LeadGenDashboard() {
   const [leftSidebarCollapsed, setLeftSidebarCollapsed] = useState(false);
   const [notesSidebarWide, setNotesSidebarWide] = useState(false);
 
-  // Pagination state
-  const [currentPage, setCurrentPage] = useState(1);
-  const [pageSize, setPageSize] = useState(10);
+  // Pagination state moved to top level to support SWR keys
 
   // Real-time progress tracking state
   const [progressLogs, setProgressLogs] = useState<string[]>([]);
@@ -490,93 +543,12 @@ export default function LeadGenDashboard() {
     }
   }, [displayProgress, isStreamDone]);
 
-  useEffect(() => {
-    if (!session || !profile || profile.status !== 'approved') return;
-
-    let active = true;
-    
-    const timer = setTimeout(() => {
-      if (active) setIsLoadingLeads(true);
-    }, 0);
-
-    fetch(`/api/leads?called=false&showAll=${showAll}&intent=${intent}`, {
-      headers: {
-        Authorization: `Bearer ${session.access_token}`
-      }
-    })
-      .then((res) => {
-        if (!res.ok) throw new Error('Failed to fetch leads from server.');
-        return res.json();
-      })
-      .then((data) => {
-        if (active) {
-          setLeads(data);
-          setErrorText(null);
-        }
-      })
-      .catch((err: unknown) => {
-        if (active) {
-          const error = err as Error;
-          setErrorText(error.message || 'Something went wrong fetching leads.');
-        }
-      })
-      .finally(() => {
-        clearTimeout(timer);
-        if (active) setIsLoadingLeads(false);
-      });
-
-    return () => {
-      active = false;
-      clearTimeout(timer);
-    };
-  }, [showAll, intent, refreshTrigger, session, profile]);
-
-  // Fetch CRM leads (called = true)
-  useEffect(() => {
-    if (!session || !profile || profile.status !== 'approved' || activeTab !== 'crm') return;
-
-    let active = true;
-    
-    const timer = setTimeout(() => {
-      if (active) setIsLoadingCrm(true);
-    }, 0);
-
-    fetch('/api/leads?called=true', {
-      headers: {
-        Authorization: `Bearer ${session.access_token}`
-      }
-    })
-      .then((res) => {
-        if (!res.ok) throw new Error('Failed to fetch CRM leads.');
-        return res.json();
-      })
-      .then((data) => {
-        if (active) {
-          setCrmLeads(data);
-          setErrorText(null);
-        }
-      })
-      .catch((err: unknown) => {
-        if (active) {
-          const error = err as Error;
-          setErrorText(error.message || 'Something went wrong fetching CRM leads.');
-        }
-      })
-      .finally(() => {
-        clearTimeout(timer);
-        if (active) setIsLoadingCrm(false);
-      });
-
-    return () => {
-      active = false;
-      clearTimeout(timer);
-    };
-  }, [activeTab, crmRefreshTrigger, session, profile]);
+  // Manual useEffect hooks removed. Caching and reactive fetches are handled by prospects SWR and crm SWR hooks.
 
   // Update CRM Lead details (status, notes, deal value, follow-up)
   const handleUpdateCRMLead = async (id: number, fields: Partial<Lead>) => {
     try {
-      const lead = crmLeads.find((l) => l.id === id) || leads.find((l) => l.id === id);
+      const lead = paginatedCrmLeads.find((l: Lead) => l.id === id) || paginatedLeads.find((l: Lead) => l.id === id);
       if (lead && fields.crm_status !== undefined && fields.crm_status !== lead.crm_status) {
         const notes = fields.notes !== undefined ? fields.notes : lead.notes;
         const followUp = fields.follow_up_at !== undefined ? fields.follow_up_at : lead.follow_up_at;
@@ -622,37 +594,13 @@ export default function LeadGenDashboard() {
         throw new Error('Failed to save CRM details.');
       }
 
-      const updateList = (prev: Lead[]) => {
-        if (fields.called === false) {
-          return prev.filter((lead) => lead.id !== id);
-        }
-        const exists = prev.some((l) => l.id === id);
-        if (!exists && fields.called === true) {
-          const orig = leads.find((l) => l.id === id);
-          if (orig) {
-            return [{ ...orig, ...fields }, ...prev];
-          }
-        }
-        return prev.map((lead) => (lead.id === id ? { ...lead, ...fields } : lead));
-      };
-
-      setLeads((prev) => {
-        if (fields.called === false) {
-          return prev.filter((lead) => lead.id !== id);
-        }
-        if (fields.called === true && !showAll) {
-          return prev.filter((lead) => lead.id !== id);
-        }
-        return prev.map((lead) => (lead.id === id ? { ...lead, ...fields } : lead));
-      });
-      setCrmLeads(updateList);
+      // Mutate SWR caches to sync database updates instantly
+      mutateProspects();
+      mutateCrm();
       
       if (selectedCRMLead && selectedCRMLead.id === id) {
         setSelectedCRMLead(prev => prev ? { ...prev, ...fields } : null);
       }
-
-      setRefreshTrigger((prev) => prev + 1);
-      setCrmRefreshTrigger((prev) => prev + 1);
     } catch (err: unknown) {
       const error = err as Error;
       setErrorText(error.message || 'Could not update lead details.');
@@ -853,7 +801,7 @@ export default function LeadGenDashboard() {
         }
       }
 
-      setRefreshTrigger((prev) => prev + 1);
+      mutateProspects();
       setCurrentPage(1);
       fetchHistory();
 
@@ -915,9 +863,9 @@ export default function LeadGenDashboard() {
     setConfirmDialogOpen(true);
   };
 
-  // Mark a lead as called (optimistic update)
+  // Mark a lead as called (SWR mutation)
   const handleMarkCalled = async (id: number, crmStatus?: 'contacted' | 'no_answer') => {
-    const lead = leads.find((l) => l.id === id);
+    const lead = paginatedLeads.find((l: Lead) => l.id === id);
     if (!lead) return;
 
     if (crmStatus === 'contacted') {
@@ -933,18 +881,6 @@ export default function LeadGenDashboard() {
     }
 
     setCallingId(id);
-    
-    const originalLeads = [...leads];
-    
-    if (!showAll) {
-      setLeads((prev) => prev.filter((l) => l.id !== id));
-    } else {
-      setLeads((prev) =>
-        prev.map((l) =>
-          l.id === id ? { ...l, called: true, called_at: new Date().toISOString(), crm_status: crmStatus || 'no_answer' } : l
-        )
-      );
-    }
 
     try {
       const res = await fetch('/api/leads', {
@@ -956,143 +892,23 @@ export default function LeadGenDashboard() {
         body: JSON.stringify({ id, called: true, crm_status: crmStatus || 'no_answer' }),
       });
 
-
       if (!res.ok) {
         throw new Error('Could not update lead status.');
       }
+
+      // Mutate SWR caches to sync database updates instantly
+      mutateProspects();
+      mutateCrm();
     } catch (err: unknown) {
       const error = err as Error;
-      setLeads(originalLeads);
-      setErrorText(error.message || 'Could not update lead status. Refreshed table.');
+      setErrorText(error.message || 'Could not update lead status.');
     } finally {
       setCallingId(null);
     }
   };
 
 
-  // Geographic Keywords Lists matching scorer.ts geographic weightings
-  const PREMIUM_KEYWORDS = ['bandra','koramangala','juhu','powai','worli','lower parel','indiranagar','south mumbai','andheri west','hiranandani','khan market','hauz khas','whitefield','connaught place'];
-  const METRO_KEYWORDS = ['mumbai','delhi','bengaluru','bangalore','hyderabad','chennai','pune','kolkata','ahmedabad','gurgaon','gurugram','noida','surat','jaipur'];
-  const TIER2_KEYWORDS = ['nagpur','indore','lucknow','bhopal','vadodara','coimbatore','kochi','patna','chandigarh','visakhapatnam','vizag','mysuru','mysore','rajkot','nashik','aurangabad'];
-
-  // 1. Raw Leads Sources
-  const prospectsSourceLeads = searchFilter
-    ? leads.filter((lead) => lead.source?.toLowerCase().trim() === searchFilter.toLowerCase().trim())
-    : leads;
-
-  // CRM Search & Filters
-  const [crmSearchQuery, setCrmSearchQuery] = useState('');
-  const crmSourceLeads = crmLeads.filter(l => {
-    const matchesStatus = crmStatusFilter === 'all' || l.crm_status === crmStatusFilter;
-    const matchesSearch = crmSearchQuery.trim() === '' || 
-      l.name?.toLowerCase().includes(crmSearchQuery.toLowerCase()) || 
-      l.phone?.includes(crmSearchQuery) || 
-      l.source?.toLowerCase().includes(crmSearchQuery.toLowerCase());
-    return matchesStatus && matchesSearch;
-  });
-
-  // Choose source based on active tab
-  const currentLeadsList = activeTab === 'prospects' ? prospectsSourceLeads : crmSourceLeads;
-
-  // 2. Filter by Tier
-  const filteredByTier = tierFilter === 'all' 
-    ? currentLeadsList 
-    : currentLeadsList.filter(l => (l.tier ?? l.problems?.tier) === tierFilter);
-
-  // 3. Filter by Niche
-  const filteredByNiche = nicheFilter === 'all' 
-    ? filteredByTier 
-    : filteredByTier.filter(lead => {
-        const name = (lead.name || '').toLowerCase();
-        const src  = (lead.source || '').toLowerCase();
-        const nicheMap: Record<string, RegExp> = {
-          clinic:      /dentist|dental|clinic|hospital|doctor|medical/i,
-          real_estate: /real.?estate|builder|property|flat|apartment/i,
-          gym:         /gym|fitness|yoga|wellness|spa|salon|beauty/i,
-          restaurant:  /restaurant|cafe|food|dhaba|biryani|dining/i,
-          consultant:  /lawyer|advocate|ca |chartered|consultant|tax/i,
-          education:   /school|college|coaching|tuition|academy/i,
-          retail:      /shop|store|retail|boutique|mart/i,
-        };
-        return nicheMap[nicheFilter]?.test(name + ' ' + src) ?? true;
-      });
-
-  // 4. Filter by City Geographies
-  const filteredByCity = cityFilter === 'all' 
-    ? filteredByNiche 
-    : filteredByNiche.filter(l => {
-        const addr = (l.address || '').toLowerCase();
-        if (cityFilter === 'premium') return PREMIUM_KEYWORDS.some(k => addr.includes(k));
-        if (cityFilter === 'metro') return METRO_KEYWORDS.some(k => addr.includes(k));
-        if (cityFilter === 'tier2') return TIER2_KEYWORDS.some(k => addr.includes(k));
-        return true;
-      });
-
-  // 5. Sorted Leads Pipeline
-  const sortedLeads = [...filteredByCity].sort((a, b) => {
-    if (sortBy === 'created_at') {
-      return new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime();
-    }
-    if (sortBy === 'deal_value') {
-      return (b.deal_value || 0) - (a.deal_value || 0);
-    }
-    if (sortBy === 'priority_rank') {
-      const aRank = a.priority_rank ?? 999999;
-      const bRank = b.priority_rank ?? 999999;
-      return aRank - bRank;
-    }
-    if (sortBy === 'intent_score') {
-      const aVal = a.intent_score ?? a.problems?.intentNorm ?? 0;
-      const bVal = b.intent_score ?? b.problems?.intentNorm ?? 0;
-      return bVal - aVal;
-    }
-    if (sortBy === 'digital_gap_score') {
-      const aVal = a.digital_gap_score ?? a.problems?.digitalGapNorm ?? 0;
-      const bVal = b.digital_gap_score ?? b.problems?.digitalGapNorm ?? 0;
-      return bVal - aVal;
-    }
-    
-    // Default: quality score (score / final_score)
-    const aVal = a.final_score ?? a.score ?? 0;
-    const bVal = b.final_score ?? b.score ?? 0;
-    return bVal - aVal;
-  });
-
-  // Calculate paginated leads for Prospects Tab
-  const totalLeads = activeTab === 'prospects' ? sortedLeads.length : prospectsSourceLeads.length;
-  const totalPages = Math.ceil(totalLeads / pageSize) || 1;
-  const activePage = Math.min(Math.max(1, currentPage), totalPages);
-  const startIndex = (activePage - 1) * pageSize;
-  const endIndex = startIndex + pageSize;
-  const paginatedLeads = activeTab === 'prospects' ? sortedLeads.slice(startIndex, endIndex) : [];
-
-  // Calculate paginated CRM leads for CRM Tab
-  const totalCrmLeads = activeTab === 'crm' ? sortedLeads.length : crmSourceLeads.length;
-  const crmPages = Math.ceil(totalCrmLeads / pageSize) || 1;
-  const activeCrmPage = Math.min(Math.max(1, currentPage), crmPages);
-  const startCrmIdx = (activeCrmPage - 1) * pageSize;
-  const paginatedCrmLeads = activeTab === 'crm' ? sortedLeads.slice(startCrmIdx, startCrmIdx + pageSize) : [];
-
-  // Calculate CRM Stats
-  const activeCrmDeals = crmLeads.filter(l => l.crm_status !== 'lost' && l.crm_status !== 'won');
-  const pipelineValue = activeCrmDeals.reduce((sum, l) => sum + (l.deal_value || 0), 0);
-  
-  const wonDeals = crmLeads.filter(l => l.crm_status === 'won');
-  const wonRevenue = wonDeals.reduce((sum, l) => sum + (l.deal_value || 0), 0);
-  
-  const lostDeals = crmLeads.filter(l => l.crm_status === 'lost');
-  const totalClosed = wonDeals.length + lostDeals.length;
-  const closeRate = totalClosed > 0 ? Math.round((wonDeals.length / totalClosed) * 100) : 0;
-  
-  const pendingFollowUps = crmLeads.filter(l => {
-    if (!l.follow_up_at || l.crm_status === 'won' || l.crm_status === 'lost') return false;
-    const date = new Date(l.follow_up_at);
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-    const compDate = new Date(date);
-    compDate.setHours(0, 0, 0, 0);
-    return compDate.getTime() <= today.getTime();
-  }).length;
+  // Filtering, sorting, pagination, and stats pipelines are fully offloaded to the database via prospects/CRM SWR queries.
 
   // 1. Loading Overlay state while syncing authentication session details
   if (isSyncingAuth) {
@@ -1487,7 +1303,7 @@ export default function LeadGenDashboard() {
                   variant="outline"
                   size="icon"
                   onClick={() => {
-                    setRefreshTrigger((prev) => prev + 1);
+                    mutateProspects();
                     setCurrentPage(1);
                   }}
                   className="h-8 w-8 text-muted-foreground hover:text-foreground hover:bg-muted"
@@ -1502,7 +1318,7 @@ export default function LeadGenDashboard() {
                   variant="outline"
                   size="icon"
                   onClick={() => {
-                    setCrmRefreshTrigger((prev) => prev + 1);
+                    mutateCrm();
                     setCurrentPage(1);
                   }}
                   className="h-8 w-8 text-muted-foreground hover:text-foreground hover:bg-muted"
@@ -1562,659 +1378,69 @@ export default function LeadGenDashboard() {
         {/* Scrollable Main Content Space */}
         <main className="flex-1 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 md:py-8 w-full space-y-6">
           {activeTab === 'prospects' && (
-            <>
-              {/* Dashboard Dynamic Real-time Stats Grid */}
-              <section className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 sm:gap-4 animate-in fade-in duration-300">
-                <Card className="hover:shadow-md transition-all">
-                  <CardContent className="p-4">
-                    <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider flex items-center gap-1.5">
-                      <Database className="w-3.5 h-3.5 text-primary shrink-0" /> Total Prospects
-                    </span>
-                    <span className="text-2xl font-bold text-foreground tracking-tight block mt-1">{prospectsSourceLeads.length}</span>
-                  </CardContent>
-                </Card>
-
-                <Card className="hover:shadow-md transition-all">
-                  <CardContent className="p-4">
-                    <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider flex items-center gap-1.5">
-                      <Phone className="w-3.5 h-3.5 text-amber-500 shrink-0" /> Pending Calls
-                    </span>
-                    <span className="text-2xl font-bold text-foreground tracking-tight block mt-1">{prospectsSourceLeads.filter(l => !l.called).length}</span>
-                  </CardContent>
-                </Card>
-
-                <Card className="hover:shadow-md transition-all">
-                  <CardContent className="p-4">
-                    <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider flex items-center gap-1.5">
-                      <Sparkles className="w-3.5 h-3.5 text-purple-500 shrink-0 animate-pulse" /> {"Hot Prospects (>=70)"}
-                    </span>
-                    <span className="text-2xl font-bold text-foreground tracking-tight block mt-1">{prospectsSourceLeads.filter(l => l.score >= 70).length}</span>
-                  </CardContent>
-                </Card>
-
-                <Card className="hover:shadow-md transition-all">
-                  <CardContent className="p-4">
-                    <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider flex items-center gap-1.5">
-                      <Award className="w-3.5 h-3.5 text-indigo-500 shrink-0" /> Avg Quality
-                    </span>
-                    <span className="text-2xl font-bold text-foreground tracking-tight block mt-1">
-                      {prospectsSourceLeads.length > 0 ? Math.round(prospectsSourceLeads.reduce((acc, l) => acc + l.score, 0) / prospectsSourceLeads.length) : 0}
-                    </span>
-                  </CardContent>
-                </Card>
-
-                {/* 2 New High-Level Metrics Cards */}
-                <Card className="border-rose-500/10 bg-rose-500/[0.02] hover:shadow-md transition-all">
-                  <CardContent className="p-4">
-                    <span className="text-[10px] font-bold text-rose-500 uppercase tracking-wider flex items-center gap-1.5">
-                      <Flame className="w-3.5 h-3.5 text-rose-500 shrink-0" /> Hot Leads
-                    </span>
-                    <span className="text-2xl font-extrabold text-rose-600 dark:text-rose-400 tracking-tight block mt-1">
-                      {prospectsSourceLeads.filter(l => (l.tier ?? l.problems?.tier) === 'hot').length}
-                    </span>
-                  </CardContent>
-                </Card>
-
-                <Card className="border-purple-500/10 bg-purple-500/[0.02] hover:shadow-md transition-all">
-                  <CardContent className="p-4">
-                    <span className="text-[10px] font-bold text-purple-500 uppercase tracking-wider flex items-center gap-1.5">
-                      <Target className="w-3.5 h-3.5 text-purple-500 shrink-0" /> Avg Intent Score
-                    </span>
-                    <span className="text-2xl font-extrabold text-purple-600 dark:text-purple-400 tracking-tight block mt-1">
-                      {(() => {
-                        const validLeads = prospectsSourceLeads.filter(l => {
-                          const intentVal = l.intent_score ?? l.problems?.intentNorm;
-                          return intentVal !== undefined && intentVal !== null;
-                        });
-                        if (validLeads.length === 0) return 0;
-                        const sum = validLeads.reduce((acc, l) => acc + (l.intent_score ?? l.problems?.intentNorm ?? 0), 0);
-                        return Math.round(sum / validLeads.length);
-                      })()}%
-                    </span>
-                  </CardContent>
-                </Card>
-              </section>
-
-
-              {/* Search Panel Card */}
-              <Card>
-                <CardContent className="p-4 sm:p-6">
-                  <form onSubmit={handleRunPipeline} className="space-y-4">
-                    <div className="flex flex-col sm:flex-row gap-3">
-                      <div className="relative flex-1">
-                        <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-                        <Input
-                          id="search-input"
-                          type="text"
-                          placeholder="Search prospects (e.g. salons in mumbai...)"
-                          value={query}
-                          onChange={(e) => setQuery(e.target.value)}
-                          disabled={isRunningPipeline}
-                          className="pl-10 h-11 lg:h-10"
-                        />
-                      </div>
-                      <Button
-                        type="submit"
-                        disabled={isRunningPipeline || !query.trim()}
-                        className="h-11 lg:h-10 px-5 font-semibold w-full sm:w-auto"
-                      >
-                        {isRunningPipeline ? (
-                          <>
-                            <Loader2 className="w-4 h-4 animate-spin mr-2" />
-                            Scraping…
-                          </>
-                        ) : (
-                          <>
-                            <Search className="w-4 h-4 mr-2" />
-                            Scrape
-                          </>
-                        )}
-                      </Button>
-                    </div>
-                  </form>
-
-                  {/* Search Suggestions & History */}
-                  <div className="mt-4 space-y-4">
-                    {history.length > 0 && (
-                      <div className="space-y-2 animate-in fade-in duration-200">
-                        <div className="flex items-center justify-between">
-                          <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider flex items-center gap-1.5">
-                            <History className="w-3.5 h-3.5 text-muted-foreground" />
-                            Recent Searches
-                          </span>
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={handleClearAllHistory}
-                            className="text-[10px] font-bold text-destructive hover:text-destructive/80 h-6 px-2"
-                          >
-                            Clear All
-                          </Button>
-                        </div>
-                        <div className="flex flex-wrap gap-2">
-                          {history.slice(0, 5).map((item) => (
-                            <div
-                              key={item.id}
-                              onClick={() => setQuery(item.query)}
-                              className="group flex items-center gap-1.5 px-2.5 py-1 bg-muted hover:bg-muted/80 active:bg-muted text-muted-foreground hover:text-foreground rounded-lg text-xs transition-all duration-150 cursor-pointer border border-border"
-                            >
-                              <span className="font-semibold">{item.query}</span>
-                              {item.last_stored > 0 && (
-                                <Badge variant="secondary" className="text-[10px] h-4 px-1 bg-emerald-500/10 text-emerald-600 border-emerald-500/20">
-                                  {item.last_stored} stored
-                                </Badge>
-                              )}
-                              <button
-                                type="button"
-                                onClick={(e) => handleDeleteHistoryItem(e, item.id)}
-                                className="text-muted-foreground hover:text-destructive p-0.5 rounded transition-colors ml-1"
-                                title="Remove from history"
-                              >
-                                <X className="w-3 h-3" />
-                              </button>
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                    )}
-
-                    <div className="space-y-2">
-                      <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider block">
-                        {history.length > 0 ? "Popular Searches" : "Suggestions"}
-                      </span>
-                      <div className="flex flex-wrap items-center gap-2">
-                        {SUGGESTIONS.map((suggestion) => (
-                          <Button
-                            key={suggestion}
-                            variant="outline"
-                            size="sm"
-                            onClick={() => setQuery(suggestion)}
-                            disabled={isRunningPipeline}
-                            className="text-xs h-7 px-2.5 font-medium"
-                          >
-                            {suggestion}
-                          </Button>
-                        ))}
-                      </div>
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
-
-              {/* Dynamic Alerts (Error Banners) */}
-              {errorText && (
-                <Alert variant="destructive">
-                  <AlertTriangle className="h-4 w-4" />
-                  <AlertTitle>Error</AlertTitle>
-                  <AlertDescription>{errorText}</AlertDescription>
-                </Alert>
-              )}
-
-              {/* Real-time Streaming Progress Console */}
-              {isRunningPipeline && (
-                <Card className="overflow-hidden border-primary/20 bg-primary/[0.01] animate-in fade-in slide-in-from-top-2 duration-300">
-                  <CardHeader className="bg-muted/40 px-5 py-3 border-b border-border">
-                    <CardTitle className="text-xs font-bold flex items-center justify-between w-full">
-                      <span className="flex items-center gap-2">
-                        <Loader2 className="w-3.5 h-3.5 animate-spin text-primary" />
-                        Scraper Engine Progress
-                      </span>
-                      <span className="text-primary font-mono text-sm font-extrabold">{Math.round(displayProgress)}%</span>
-                    </CardTitle>
-                  </CardHeader>
-                  <CardContent className="p-5 space-y-4">
-                    {/* Animated Progress Bar */}
-                    <div className="space-y-2">
-                      <div className="w-full bg-muted rounded-full h-2.5 overflow-hidden border border-border/40">
-                        <div 
-                          className="bg-primary h-full rounded-full transition-all duration-300 ease-out"
-                          style={{ width: `${displayProgress}%` }}
-                        />
-                      </div>
-                      <div className="flex justify-between items-center text-[10px] text-muted-foreground font-semibold uppercase tracking-wider">
-                        <span>Initiated</span>
-                        <span>{Math.round(displayProgress) === 100 ? 'Completed' : 'Auditing Active Candidates'}</span>
-                      </div>
-                    </div>
-
-                    {/* Active Target display card */}
-                    {currentProgressMessage ? (
-                      <div className="bg-primary/5 border border-primary/10 rounded-xl p-3 flex items-start gap-3">
-                        <div className="h-7 w-7 rounded-lg bg-primary/10 border border-primary/20 flex items-center justify-center text-primary shrink-0 animate-pulse">
-                          <Zap className="w-4 h-4" />
-                        </div>
-                        <div className="space-y-1 min-w-0">
-                          <span className="text-[9px] uppercase font-bold text-primary tracking-wider block">Currently Auditing</span>
-                          <span className="text-xs font-bold text-foreground truncate block leading-normal">{currentProgressMessage}</span>
-                        </div>
-                      </div>
-                    ) : (
-                      <div className="flex items-center gap-2 text-muted-foreground py-2 text-xs font-medium">
-                        <Loader2 className="w-3.5 h-3.5 animate-spin text-muted-foreground" />
-                        <span>Connecting to search workers...</span>
-                      </div>
-                    )}
-
-                    {/* Collapsible Operational Logs */}
-                    {progressLogs.length > 0 && (
-                      <div className="pt-2 border-t border-border/40">
-                        <details className="group">
-                          <summary className="text-[10px] uppercase font-bold text-muted-foreground tracking-wider cursor-pointer hover:text-foreground list-none flex items-center gap-1.5 select-none focus:outline-none">
-                            <ChevronRight className="w-3.5 h-3.5 transition-transform group-open:rotate-90 text-muted-foreground" />
-                            <span>View Operational Logs ({progressLogs.length})</span>
-                          </summary>
-                          <div 
-                            ref={consoleContainerRef}
-                            className="mt-3 p-3.5 rounded-xl border border-border/80 bg-muted/20 max-h-40 overflow-y-auto space-y-2.5 font-mono text-[10.5px] leading-relaxed text-muted-foreground"
-                          >
-                            {progressLogs.map((log, idx) => {
-                              const isSkipped = log.startsWith('Skipped') || log.includes('Skipping');
-                              if (isSkipped) {
-                                return (
-                                  <div key={idx} className="flex items-center gap-2 text-muted-foreground/60 italic">
-                                    <span className="bg-muted text-muted-foreground/50 text-[8px] font-bold px-1 py-0.5 rounded border border-border shrink-0">DQ</span>
-                                    <span className="truncate">{log}</span>
-                                  </div>
-                                );
-                              }
-                              return (
-                                <div key={idx} className="flex items-start gap-2">
-                                  <Check className="w-3.5 h-3.5 text-emerald-500 shrink-0 mt-0.5" />
-                                  <span>{log}</span>
-                                </div>
-                              );
-                            })}
-                          </div>
-                        </details>
-                      </div>
-                    )}
-                  </CardContent>
-                </Card>
-              )}
-
-
-              {/* Pipeline Status Summary Card */}
-              {pipelineResult && (
-                <Card className="border-emerald-500/10 bg-emerald-500/5 animate-in fade-in duration-300">
-                  <CardContent className="p-5 space-y-4">
-                    <div className="flex items-center justify-between border-b border-emerald-500/10 pb-3">
-                      <div className="flex items-center gap-2 text-emerald-600 dark:text-emerald-400 font-bold text-sm">
-                        <CheckCircle2 className="w-4.5 h-4.5" />
-                        <span>Pipeline Run Complete</span>
-                      </div>
-                      <Badge variant="secondary" className="bg-emerald-500/10 text-emerald-600 text-[10px] uppercase tracking-wider border-emerald-500/20">
-                        Database Synced
-                      </Badge>
-                    </div>
-                    
-                    <div className="grid grid-cols-2 lg:grid-cols-4 gap-3.5">
-                      <Card className="shadow-sm">
-                        <CardContent className="p-3.5 flex flex-col justify-between">
-                          <span className="text-[9px] uppercase font-bold text-muted-foreground tracking-wider block">Scraped Candidates</span>
-                          <span className="text-xl font-black text-foreground block mt-1">{pipelineResult.scraped}</span>
-                          <span className="text-[9px] text-muted-foreground block mt-1">Google Places search results</span>
-                        </CardContent>
-                      </Card>
-
-                      <Card className="shadow-sm">
-                        <CardContent className="p-3.5 flex flex-col justify-between">
-                          <span className="text-[9px] uppercase font-bold text-muted-foreground tracking-wider block">Viable Leads</span>
-                          <span className="text-xl font-black text-foreground block mt-1">{pipelineResult.filtered}</span>
-                          <span className="text-[9px] text-rose-500 font-semibold block mt-1">
-                            {pipelineResult.scraped - pipelineResult.filtered} skipped (no phone)
-                          </span>
-                        </CardContent>
-                      </Card>
-
-                      <Card className="border-emerald-500/20 bg-emerald-500/5 shadow-sm">
-                        <CardContent className="p-3.5 flex flex-col justify-between">
-                          <span className="text-[9px] uppercase font-bold text-emerald-600 dark:text-emerald-400 tracking-wider block">Hot Prospects Stored</span>
-                          <span className="text-xl font-black text-emerald-600 dark:text-emerald-400 block mt-1">{pipelineResult.stored}</span>
-                          <span className="text-[9px] text-emerald-600 dark:text-emerald-400 font-semibold block mt-1">Score opportunity &gt; 50</span>
-                        </CardContent>
-                      </Card>
-
-                      <Card className="shadow-sm">
-                        <CardContent className="p-3.5 flex flex-col justify-between">
-                          <span className="text-[9px] uppercase font-bold text-muted-foreground tracking-wider block">Skipped/Duplicate</span>
-                          <span className="text-xl font-black text-foreground block mt-1">
-                            {pipelineResult.skipped_dedup + pipelineResult.skipped_score}
-                          </span>
-                          <span className="text-[9px] text-muted-foreground block mt-1 font-semibold">
-                            {pipelineResult.skipped_dedup} dup, {pipelineResult.skipped_score} low score
-                          </span>
-                        </CardContent>
-                      </Card>
-                    </div>
-                  </CardContent>
-                </Card>
-              )}
-
-              {/* Active Scraping Origin Filter Badge */}
-              {searchFilter && (
-                <Alert className="bg-primary/10 border-primary/20 text-primary animate-in slide-in-from-top-2 duration-200">
-                  <Filter className="h-4 w-4" />
-                  <AlertTitle className="text-xs font-semibold">
-                    Showing prospects scraped from: <span className="underline font-bold">&ldquo;{searchFilter}&rdquo;</span>
-                  </AlertTitle>
-                  <AlertDescription>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => {
-                        setSearchFilter(null);
-                        setCurrentPage(1);
-                      }}
-                      className="text-[10px] font-bold h-6 px-2 mt-1"
-                    >
-                      Clear Origin Filter
-                    </Button>
-                  </AlertDescription>
-                </Alert>
-              )}
-                     {/* ─── Unified Filter & Sort Panel ─── */}
-              <Card className="bg-card shadow-sm animate-in fade-in duration-300">
-                <CardHeader className="px-4 sm:px-5 pt-4 pb-0 space-y-0">
-                  <div className="flex items-center justify-between">
-                    <CardTitle className="text-sm font-bold flex items-center gap-2">
-                      <Filter className="w-4 h-4 text-muted-foreground" />
-                      Prospects Database
-                    </CardTitle>
-                    <div className="flex items-center gap-2">
-                      {(tierFilter !== 'all' || nicheFilter !== 'all' || cityFilter !== 'all' || sortBy !== 'final_score' || intent !== 'high' || showAll) && (
-                        <button
-                          onClick={() => {
-                            setTierFilter('all');
-                            setNicheFilter('all');
-                            setCityFilter('all');
-                            setSortBy('final_score');
-                            setIntent('high');
-                            setShowAll(false);
-                            setCurrentPage(1);
-                          }}
-                          className="text-[11px] font-bold text-destructive hover:underline transition-all"
-                        >
-                          Clear All
-                        </button>
-                      )}
-
-                    </div>
-                  </div>
-                </CardHeader>
-
-                <CardContent className="p-4 sm:p-5 space-y-4">
-
-                  {/* Row 1: Tier + Intent + Called — all as Shadcn Tabs */}
-                  <div className="flex flex-col sm:flex-row flex-wrap gap-3">
-                    {/* Tier Filter */}
-                    <div className="space-y-1">
-                      <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider block">Tier</span>
-                      <Tabs value={tierFilter} onValueChange={(v) => { setTierFilter(v); setCurrentPage(1); }}>
-                        <TabsList className="h-9">
-                          <TabsTrigger value="all"  className="text-xs font-semibold px-3">All</TabsTrigger>
-                          <TabsTrigger value="hot"  className="text-xs font-semibold px-2.5">🔥 Hot</TabsTrigger>
-                          <TabsTrigger value="warm" className="text-xs font-semibold px-2.5">⚡ Warm</TabsTrigger>
-                          <TabsTrigger value="nurture" className="text-xs font-semibold px-2.5">🌱 Nurture</TabsTrigger>
-                          <TabsTrigger value="cold" className="text-xs font-semibold px-2.5">❄️ Cold</TabsTrigger>
-                        </TabsList>
-                      </Tabs>
-                    </div>
-
-                    {/* Intent Filter */}
-                    <div className="space-y-1">
-                      <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider block">Intent</span>
-                      <Tabs value={intent} onValueChange={(v) => { setIntent(v as 'high' | 'low' | 'all'); setCurrentPage(1); }}>
-                        <TabsList className="h-9">
-                          <TabsTrigger value="high" className="text-xs font-semibold px-3">High</TabsTrigger>
-                          <TabsTrigger value="low"  className="text-xs font-semibold px-3">Low</TabsTrigger>
-                          <TabsTrigger value="all"  className="text-xs font-semibold px-3">All</TabsTrigger>
-                        </TabsList>
-                      </Tabs>
-                    </div>
-
-                    {/* Called Status */}
-                    <div className="space-y-1">
-                      <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider block">Status</span>
-                      <Tabs value={showAll ? 'all' : 'uncalled'} onValueChange={(v) => { setShowAll(v === 'all'); setCurrentPage(1); }}>
-                        <TabsList className="h-9">
-                          <TabsTrigger value="uncalled" className="text-xs font-semibold px-3">Uncalled</TabsTrigger>
-                          <TabsTrigger value="all"      className="text-xs font-semibold px-3">All Status</TabsTrigger>
-                        </TabsList>
-                      </Tabs>
-                    </div>
-                  </div>
-
-                  {/* Row 2: Niche / City / Sort selects */}
-                  <div className="flex flex-wrap sm:flex-nowrap gap-3 pt-1 border-t border-border/50">
-                    {/* Niche */}
-                    <div className="space-y-1 w-full sm:w-44">
-                      <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider block">Niche</span>
-                      <Select value={nicheFilter} onValueChange={(v) => { setNicheFilter(v); setCurrentPage(1); }}>
-                        <SelectTrigger className="h-9 text-xs font-semibold">
-                          <SelectValue placeholder="All Niches" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="all">All Niches</SelectItem>
-                          <SelectItem value="clinic">Clinics &amp; Medical</SelectItem>
-                          <SelectItem value="real_estate">Real Estate</SelectItem>
-                          <SelectItem value="gym">Gyms &amp; Fitness</SelectItem>
-                          <SelectItem value="restaurant">Restaurants &amp; Food</SelectItem>
-                          <SelectItem value="consultant">Consultants &amp; Lawyers</SelectItem>
-                          <SelectItem value="education">Education &amp; Coaching</SelectItem>
-                          <SelectItem value="retail">Shops &amp; Retail</SelectItem>
-                        </SelectContent>
-                      </Select>
-                    </div>
-
-                    {/* City Tier */}
-                    <div className="space-y-1 w-full sm:w-44">
-                      <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider block">Location</span>
-                      <Select value={cityFilter} onValueChange={(v) => { setCityFilter(v); setCurrentPage(1); }}>
-                        <SelectTrigger className="h-9 text-xs font-semibold">
-                          <SelectValue placeholder="All Cities" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="all">All Cities</SelectItem>
-                          <SelectItem value="premium">Premium Zones (e.g. Bandra)</SelectItem>
-                          <SelectItem value="metro">Metro Cities</SelectItem>
-                          <SelectItem value="tier2">Tier-2 Cities</SelectItem>
-                        </SelectContent>
-                      </Select>
-                    </div>
-
-                    {/* Sort */}
-                    <div className="space-y-1 w-full sm:w-44">
-                      <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider block">Sort by</span>
-                      <Select value={sortBy} onValueChange={(v) => { setSortBy(v); setCurrentPage(1); }}>
-                        <SelectTrigger className="h-9 text-xs font-semibold">
-                          <SelectValue placeholder="Quality Score" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="final_score">Quality Score</SelectItem>
-                          <SelectItem value="priority_rank">Priority Rank</SelectItem>
-                          <SelectItem value="intent_score">Intent Signal</SelectItem>
-                          <SelectItem value="digital_gap_score">Digital Gap</SelectItem>
-                          <SelectItem value="deal_value">Deal Value</SelectItem>
-                          <SelectItem value="created_at">Date Acquired</SelectItem>
-                        </SelectContent>
-                      </Select>
-                    </div>
-                  </div>
-
-                  {/* Active filter summary */}
-                  {(tierFilter !== 'all' || nicheFilter !== 'all' || cityFilter !== 'all' || sortBy !== 'final_score' || intent !== 'high' || showAll) && (
-                    <div className="flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground pt-1 border-t border-border/50 animate-in slide-in-from-top-1 duration-150">
-                      <span className="font-semibold">Active:</span>
-                      {tierFilter !== 'all' && <Badge variant="secondary" className="text-[10px] font-bold px-2 py-0.5">Tier: {tierFilter.toUpperCase()}</Badge>}
-                      {intent !== 'high' && <Badge variant="secondary" className="text-[10px] font-bold px-2 py-0.5">Intent: {intent.toUpperCase()}</Badge>}
-                      {showAll && <Badge variant="secondary" className="text-[10px] font-bold px-2 py-0.5">Status: ALL</Badge>}
-                      {nicheFilter !== 'all' && <Badge variant="secondary" className="text-[10px] font-bold px-2 py-0.5">Niche: {nicheFilter.toUpperCase()}</Badge>}
-                      {cityFilter !== 'all' && <Badge variant="secondary" className="text-[10px] font-bold px-2 py-0.5">City: {cityFilter.toUpperCase()}</Badge>}
-                      {sortBy !== 'final_score' && <Badge variant="secondary" className="text-[10px] font-bold px-2 py-0.5 bg-primary/5 text-primary border-primary/10">Sort: {sortBy.replace(/_/g, ' ')}</Badge>}
-                      <span className="ml-1 font-semibold text-foreground">{sortedLeads.length} leads matching</span>
-                    </div>
-                  )}
-
-                  {/* Low-intent notice */}
-                  {intent === 'low' && (
-                    <p className="text-[11px] text-muted-foreground flex items-center gap-1.5">
-                      <span>ℹ️</span> Low intent prospects are automatically deleted after 7 days.
-                    </p>
-                  )}
-
-                  {/* Table */}
-                  <div className="-mx-4 sm:-mx-5 -mb-4 sm:-mb-5 border-t border-border/60">
-                    <LeadsTable
-                      leads={paginatedLeads}
-                      onMarkCalled={handleMarkCalled}
-                      isLoading={isLoadingLeads}
-                      callingId={callingId}
-                      currentPage={activePage}
-                      pageSize={pageSize}
-                      totalLeads={totalLeads}
-                      onPageChange={setCurrentPage}
-                      onPageSizeChange={setPageSize}
-                    />
-                  </div>
-
-                </CardContent>
-              </Card>
-            </>
+            <LeadsSection
+              prospectsStats={prospectsStats}
+              query={query}
+              setQuery={setQuery}
+              intent={intent}
+              setIntent={setIntent}
+              showAll={showAll}
+              setShowAll={setShowAll}
+              tierFilter={tierFilter}
+              setTierFilter={setTierFilter}
+              nicheFilter={nicheFilter}
+              setNicheFilter={setNicheFilter}
+              cityFilter={cityFilter}
+              setCityFilter={setCityFilter}
+              sortBy={sortBy}
+              setSortBy={setSortBy}
+              searchFilter={searchFilter}
+              setSearchFilter={setSearchFilter}
+              paginatedLeads={paginatedLeads}
+              isLoadingLeads={isLoadingLeads}
+              callingId={callingId}
+              currentPage={currentPage}
+              setCurrentPage={setCurrentPage}
+              pageSize={pageSize}
+              setPageSize={setPageSize}
+              totalLeads={totalLeads}
+              handleMarkCalled={handleMarkCalled}
+              isRunningPipeline={isRunningPipeline}
+              handleRunPipeline={handleRunPipeline}
+              displayProgress={displayProgress}
+              currentProgressMessage={currentProgressMessage}
+              progressLogs={progressLogs}
+              pipelineResult={pipelineResult}
+              errorText={errorText}
+              history={history}
+              handleClearAllHistory={handleClearAllHistory}
+              handleDeleteHistoryItem={handleDeleteHistoryItem}
+            />
           )}
 
           {activeTab === 'crm' && (
-            <>
-              {/* CRM Stats Grid */}
-              <section className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4 animate-in fade-in duration-300">
-                <Card>
-                  <CardContent className="p-4">
-                    <span className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider flex items-center gap-1.5">
-                      <TrendingUp className="w-3.5 h-3.5 text-primary" /> Active Pipeline
-                    </span>
-                    <span className="text-2xl font-bold text-foreground tracking-tight block mt-1">
-                      ${pipelineValue.toLocaleString()}
-                    </span>
-                    <span className="text-[10px] text-muted-foreground font-medium block mt-1.5">
-                      From {activeCrmDeals.length} active leads
-                    </span>
-                  </CardContent>
-                </Card>
-
-                <Card>
-                  <CardContent className="p-4">
-                    <span className="text-[10px] font-medium text-emerald-600 dark:text-emerald-400 uppercase tracking-wider flex items-center gap-1.5">
-                      <DollarSign className="w-3.5 h-3.5" /> Won Revenue
-                    </span>
-                    <span className="text-2xl font-bold text-emerald-600 dark:text-emerald-400 tracking-tight block mt-1">
-                      ${wonRevenue.toLocaleString()}
-                    </span>
-                    <span className="text-[10px] text-muted-foreground font-medium block mt-1.5">
-                      From {wonDeals.length} closed won deals
-                    </span>
-                  </CardContent>
-                </Card>
-
-                <Card>
-                  <CardContent className="p-4">
-                    <span className="text-[10px] font-medium text-rose-500 uppercase tracking-wider flex items-center gap-1.5">
-                      <Calendar className="w-3.5 h-3.5" /> Due Today / Overdue
-                    </span>
-                    <span className={`text-2xl font-bold tracking-tight block mt-1 ${pendingFollowUps > 0 ? 'text-rose-500 animate-pulse' : 'text-foreground'}`}>
-                      {pendingFollowUps}
-                    </span>
-                    <span className="text-[10px] text-muted-foreground font-medium block mt-1.5">
-                      Requires immediate action
-                    </span>
-                  </CardContent>
-                </Card>
-
-                <Card>
-                  <CardContent className="p-4">
-                    <span className="text-[10px] font-medium text-indigo-500 uppercase tracking-wider flex items-center gap-1.5">
-                      <UserCheck className="w-3.5 h-3.5" /> Close Rate
-                    </span>
-                    <span className="text-2xl font-bold text-foreground tracking-tight block mt-1">
-                      {closeRate}%
-                    </span>
-                    <span className="text-[10px] text-muted-foreground font-medium block mt-1.5">
-                      From {totalClosed} closed deals
-                    </span>
-                  </CardContent>
-                </Card>
-              </section>
-
-              {/* CRM Search & Filters control center */}
-              <Card>
-                <CardContent className="p-4 sm:p-5">
-                  <div className="flex flex-col lg:flex-row gap-4 justify-between items-center w-full">
-                    <div className="relative w-full lg:max-w-md">
-                      <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-                      <Input
-                        type="text"
-                        placeholder="Search CRM by lead name, phone, source..."
-                        value={crmSearchQuery}
-                        onChange={(e) => {
-                          setCrmSearchQuery(e.target.value);
-                          setCurrentPage(1);
-                        }}
-                        className="pl-10 h-11 lg:h-10 w-full"
-                      />
-                    </div>
-
-                    {/* Status Filters — Tabs component */}
-                    <Tabs value={crmStatusFilter} onValueChange={(v) => { setCrmStatusFilter(v); setCurrentPage(1); }} className="w-full lg:w-auto overflow-x-auto scrollbar-none">
-                      <TabsList className="h-11 lg:h-9 w-max min-w-full lg:w-auto lg:min-w-0 flex flex-nowrap lg:flex-wrap items-center justify-start lg:justify-center border border-border p-1 rounded-lg bg-muted/40 whitespace-nowrap">
-                        {[
-                          { value: 'all', label: 'All' },
-                          { value: 'no_answer', label: 'Attempted' },
-                          { value: 'contacted', label: 'Contacted' },
-                          { value: 'meeting', label: 'Meeting' },
-                          { value: 'won', label: 'Won' },
-                          { value: 'lost', label: 'Lost' }
-                        ].map(tab => (
-                          <TabsTrigger key={tab.value} value={tab.value} className="text-xs font-semibold px-3 py-1 h-9 lg:h-7 flex items-center justify-center">
-                            {tab.label}
-                          </TabsTrigger>
-                        ))}
-                      </TabsList>
-                    </Tabs>
-                  </div>
-                </CardContent>
-              </Card>
-
-              {/* Dynamic Alerts (Error Banners) */}
-              {errorText && (
-                <Alert variant="destructive">
-                  <AlertTriangle className="h-4 w-4" />
-                  <AlertTitle>Error</AlertTitle>
-                  <AlertDescription>{errorText}</AlertDescription>
-                </Alert>
-              )}
-
-              {/* CRM Database Table Container */}
-              <Card className="overflow-hidden">
-                <CardHeader className="p-4 sm:p-5 border-b border-border space-y-1">
-                  <CardTitle className="text-base font-bold leading-none">Sales Pipeline</CardTitle>
-                  <CardDescription className="text-[11px]">
-                    Manage active discussions, schedule pitches, record comments, and finalize won client rebuilds.
-                  </CardDescription>
-                </CardHeader>
-
-                <div className="p-0">
-                  <CRMLeadsTable
-                    leads={paginatedCrmLeads}
-                    onUpdateLeadAction={handleUpdateCRMLead}
-                    onOpenNotesAction={handleOpenLeadNotes}
-                    isLoading={isLoadingCrm}
-                    currentPage={activeCrmPage}
-                    pageSize={pageSize}
-                    totalLeads={totalCrmLeads}
-                    onPageChangeAction={setCurrentPage}
-                    onPageSizeChangeAction={setPageSize}
-                  />
-                </div>
-              </Card>
-            </>
+            <CRMSection
+              pipelineValue={pipelineValue}
+              activeCrmDealsCount={activeCrmDealsCount}
+              wonRevenue={wonRevenue}
+              wonDealsCount={wonDealsCount}
+              pendingFollowUps={pendingFollowUps}
+              closeRate={closeRate}
+              totalClosedCount={totalClosedCount}
+              crmSearchQuery={crmSearchQuery}
+              setCrmSearchQuery={setCrmSearchQuery}
+              crmStatusFilter={crmStatusFilter}
+              setCrmStatusFilter={setCrmStatusFilter}
+              paginatedCrmLeads={paginatedCrmLeads}
+              isLoadingCrm={isLoadingCrm}
+              currentPage={currentPage}
+              pageSize={pageSize}
+              totalCrmLeads={totalCrmLeads}
+              setCurrentPage={setCurrentPage}
+              setPageSize={setPageSize}
+              handleUpdateCRMLead={handleUpdateCRMLead}
+              handleOpenLeadNotes={handleOpenLeadNotes}
+            />
           )}
 
           {activeTab === 'history' && (
@@ -2356,285 +1582,16 @@ export default function LeadGenDashboard() {
           )}
 
           {activeTab === 'users' && profile?.role === 'super_admin' && (
-            <>
-              {/* User management stats card grid */}
-              <section className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4 animate-in fade-in duration-300">
-                <Card className="hover:shadow-md transition-all">
-                  <CardContent className="p-4">
-                    <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider flex items-center gap-1.5">
-                      <Users className="w-3.5 h-3.5 text-primary shrink-0" /> Total Users
-                    </span>
-                    <span className="text-2xl font-bold text-foreground tracking-tight block mt-1">{users.length}</span>
-                  </CardContent>
-                </Card>
-
-                <Card className="hover:shadow-md transition-all">
-                  <CardContent className="p-4">
-                    <span className="text-[10px] font-bold text-emerald-500 uppercase tracking-wider flex items-center gap-1.5">
-                      <ShieldCheck className="w-3.5 h-3.5 text-emerald-500 shrink-0" /> Approved
-                    </span>
-                    <span className="text-2xl font-bold text-emerald-600 dark:text-emerald-400 tracking-tight block mt-1">
-                      {users.filter(u => u.status === 'approved').length}
-                    </span>
-                  </CardContent>
-                </Card>
-
-                <Card className="hover:shadow-md transition-all">
-                  <CardContent className="p-4">
-                    <span className="text-[10px] font-bold text-blue-500 uppercase tracking-wider flex items-center gap-1.5">
-                      <ShieldAlert className="w-3.5 h-3.5 text-blue-500 shrink-0 animate-pulse" /> Pending Approval
-                    </span>
-                    <span className="text-2xl font-bold text-blue-600 dark:text-blue-400 tracking-tight block mt-1">
-                      {users.filter(u => u.status === 'pending').length}
-                    </span>
-                  </CardContent>
-                </Card>
-
-                <Card className="hover:shadow-md transition-all">
-                  <CardContent className="p-4">
-                    <span className="text-[10px] font-bold text-rose-500 uppercase tracking-wider flex items-center gap-1.5">
-                      <Ban className="w-3.5 h-3.5 text-rose-500 shrink-0" /> Blocked/Suspended
-                    </span>
-                    <span className="text-2xl font-bold text-rose-600 dark:text-rose-400 tracking-tight block mt-1">
-                      {users.filter(u => ['blocked', 'disabled', 'rejected'].includes(u.status)).length}
-                    </span>
-                  </CardContent>
-                </Card>
-              </section>
-
-              {/* User management control card */}
-              <Card className="overflow-hidden animate-in fade-in duration-300">
-                <CardHeader className="p-4 sm:p-6 border-b border-border flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-4">
-                  <div>
-                    <CardTitle className="text-base font-bold leading-none flex items-center gap-2">
-                      <Users className="w-4 h-4 text-muted-foreground" />
-                      Registered Member Profiles
-                    </CardTitle>
-                    <CardDescription className="text-[11px] mt-1">
-                      Authorize new administrator requests, manage roles, suspension statuses, and track system registrations.
-                    </CardDescription>
-                  </div>
-                  
-                  {/* Search and Filters */}
-                  <div className="flex flex-col sm:flex-row items-center gap-2">
-                    <div className="relative w-full sm:w-60">
-                      <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground" />
-                      <Input
-                        type="text"
-                        placeholder="Search by email or name..."
-                        value={userSearchQuery}
-                        onChange={(e) => setUserSearchQuery(e.target.value)}
-                        className="pl-9 h-8.5 text-xs"
-                      />
-                    </div>
-                    <Select value={userStatusFilter} onValueChange={setUserStatusFilter}>
-                      <SelectTrigger className="w-full sm:w-36 h-8.5 text-xs">
-                        <SelectValue placeholder="Filter Status" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="all">All Statuses</SelectItem>
-                        <SelectItem value="approved">Approved</SelectItem>
-                        <SelectItem value="pending">Pending</SelectItem>
-                        <SelectItem value="disabled">Disabled</SelectItem>
-                        <SelectItem value="blocked">Blocked</SelectItem>
-                        <SelectItem value="rejected">Rejected</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-                </CardHeader>
-
-                <div className="overflow-x-auto">
-                  {(() => {
-                    const filteredUsers = users.filter((u) => {
-                      const matchesStatus = userStatusFilter === 'all' || u.status === userStatusFilter;
-                      const matchesSearch = userSearchQuery.trim() === '' ||
-                        (u.full_name || '').toLowerCase().includes(userSearchQuery.toLowerCase()) ||
-                        (u.email || '').toLowerCase().includes(userSearchQuery.toLowerCase());
-                      return matchesStatus && matchesSearch;
-                    });
-
-                    if (isLoadingUsers) {
-                      return (
-                        <div className="flex flex-col items-center justify-center py-16 text-center">
-                          <Loader2 className="w-8 h-8 text-primary animate-spin mb-2" />
-                          <p className="text-xs text-muted-foreground font-semibold">Retrieving user roster database...</p>
-                        </div>
-                      );
-                    }
-
-                    if (filteredUsers.length === 0) {
-                      return (
-                        <div className="flex flex-col items-center justify-center py-16 px-6 text-center m-6 border-2 border-dashed border-border rounded-2xl bg-card/40 backdrop-blur-sm animate-in fade-in duration-300">
-                          <div className="h-12 w-12 rounded-2xl bg-primary/10 border border-primary/20 flex items-center justify-center mb-4">
-                            <Users className="w-5.5 h-5.5 text-primary" />
-                          </div>
-                          <h3 className="font-extrabold text-base text-foreground tracking-tight">No Users Found</h3>
-                          <p className="text-muted-foreground text-xs max-w-sm mt-2 leading-relaxed">
-                            No member records matched your active search query or status filter parameters.
-                          </p>
-                        </div>
-                      );
-                    }
-
-                    return (
-                      <table className="w-full text-left border-collapse min-w-[800px]">
-                        <thead>
-                          <tr className="border-b border-border bg-muted/30 text-[10px] uppercase font-bold text-muted-foreground tracking-wider">
-                            <th className="px-6 py-3.5">User Details</th>
-                            <th className="px-6 py-3.5">Role</th>
-                            <th className="px-6 py-3.5">Current Status</th>
-                            <th className="px-6 py-3.5">Joined Date</th>
-                            <th className="px-6 py-3.5 text-right">Administrative Actions</th>
-                          </tr>
-                        </thead>
-                        <tbody className="divide-y divide-border text-xs">
-                          {filteredUsers.map((u) => {
-                            const isSelf = u.id === session?.user?.id;
-                            const isPrimaryAdmin = u.email?.toLowerCase() === (process.env.NEXT_PUBLIC_SUPER_ADMIN_EMAIL || 'admin@example.com').toLowerCase();
-
-                            return (
-                              <tr key={u.id} className={`hover:bg-muted/20 transition-colors ${isSelf ? 'bg-primary/[0.01]' : ''}`}>
-                                <td className="px-6 py-4 flex items-center gap-3">
-                                  <SafeAvatar
-                                    src={u.avatar_url}
-                                    name={u.full_name}
-                                    email={u.email}
-                                    className="w-8 h-8 rounded-full border border-border object-cover shrink-0"
-                                  />
-                                  <div className="min-w-0">
-                                    <div className="font-bold text-foreground truncate flex items-center gap-1.5">
-                                      {u.full_name || 'Active Member'}
-                                      {isSelf && <Badge variant="outline" className="text-[8px] h-4 px-1 border-primary/30 text-primary bg-primary/5 uppercase font-extrabold tracking-wide">You</Badge>}
-                                    </div>
-                                    <p className="text-[10px] text-muted-foreground truncate leading-none mt-0.5">{u.email}</p>
-                                  </div>
-                                </td>
-                                <td className="px-6 py-4">
-                                  {u.role === 'super_admin' ? (
-                                    <Badge className="bg-amber-500/10 text-amber-600 dark:text-amber-400 text-[10px] font-extrabold border-amber-500/20 uppercase tracking-wider flex items-center gap-1 w-fit">
-                                      <Award className="w-3 h-3 text-amber-500" /> Super Admin
-                                    </Badge>
-                                  ) : (
-                                    <Badge variant="secondary" className="text-[10px] uppercase font-bold tracking-wider w-fit">
-                                      Standard User
-                                    </Badge>
-                                  )}
-                                </td>
-                                <td className="px-6 py-4">
-                                  <Badge className={`text-[10px] font-extrabold uppercase tracking-wider w-fit flex items-center gap-1 ${
-                                    u.status === 'approved'
-                                      ? 'bg-emerald-500/10 text-emerald-600 border-emerald-500/20'
-                                      : u.status === 'pending'
-                                      ? 'bg-blue-500/10 text-blue-600 border-blue-500/20 animate-pulse'
-                                      : u.status === 'disabled'
-                                      ? 'bg-amber-500/10 text-amber-600 border-amber-500/20'
-                                      : u.status === 'blocked'
-                                      ? 'bg-rose-500/10 text-rose-600 border-rose-500/20'
-                                      : 'bg-muted text-muted-foreground border-border'
-                                  }`}>
-                                    {u.status === 'approved' && <ShieldCheck className="w-3 h-3" />}
-                                    {u.status === 'pending' && <ShieldAlert className="w-3 h-3" />}
-                                    {u.status === 'disabled' && <Ban className="w-3 h-3" />}
-                                    {u.status === 'blocked' && <Lock className="w-3 h-3" />}
-                                    {u.status}
-                                  </Badge>
-                                </td>
-                                <td className="px-6 py-4 text-muted-foreground font-medium">
-                                  {new Date(u.created_at).toLocaleString('en-IN', {
-                                    dateStyle: 'medium',
-                                  })}
-                                </td>
-                                <td className="px-6 py-4 text-right space-x-1.5 whitespace-nowrap">
-                                  {/* Locking primary admin controls */}
-                                  {isPrimaryAdmin ? (
-                                    <span className="text-[10px] text-muted-foreground/60 font-semibold italic pr-2">System Protected</span>
-                                  ) : (
-                                    <>
-                                      {u.status !== 'approved' && (
-                                        <Button
-                                          variant="outline"
-                                          size="sm"
-                                          onClick={() => {
-                                            setConfirmDialogTitle('Approve Account Access');
-                                            setConfirmDialogDesc(`Are you sure you want to approve access for ${u.email}? They will gain immediate entry to the prospects database and pipeline CRM.`);
-                                            setConfirmDialogAction(() => () => {
-                                              handleUpdateUserStatus(u.id, 'approved');
-                                              setConfirmDialogOpen(false);
-                                            });
-                                            setConfirmDialogOpen(true);
-                                          }}
-                                          className="text-[10px] font-bold h-7 px-2 bg-emerald-500/5 hover:bg-emerald-500/10 text-emerald-600 border-emerald-500/20"
-                                        >
-                                          Approve
-                                        </Button>
-                                      )}
-                                      {u.status === 'pending' && (
-                                        <Button
-                                          variant="outline"
-                                          size="sm"
-                                          onClick={() => {
-                                            setConfirmDialogTitle('Reject Request');
-                                            setConfirmDialogDesc(`Are you sure you want to reject the registration request from ${u.email}?`);
-                                            setConfirmDialogAction(() => () => {
-                                              handleUpdateUserStatus(u.id, 'rejected');
-                                              setConfirmDialogOpen(false);
-                                            });
-                                            setConfirmDialogOpen(true);
-                                          }}
-                                          className="text-[10px] font-bold h-7 px-2 bg-orange-500/5 hover:bg-orange-500/10 text-orange-600 border-orange-500/20"
-                                        >
-                                          Reject
-                                        </Button>
-                                      )}
-                                      {u.status === 'approved' && (
-                                        <Button
-                                          variant="outline"
-                                          size="sm"
-                                          onClick={() => {
-                                            setConfirmDialogTitle('Suspend User Access');
-                                            setConfirmDialogDesc(`Are you sure you want to temporarily disable pipeline access for ${u.email}?`);
-                                            setConfirmDialogAction(() => () => {
-                                              handleUpdateUserStatus(u.id, 'disabled');
-                                              setConfirmDialogOpen(false);
-                                            });
-                                            setConfirmDialogOpen(true);
-                                          }}
-                                          className="text-[10px] font-bold h-7 px-2 bg-amber-500/5 hover:bg-amber-500/10 text-amber-600 border-amber-500/20"
-                                        >
-                                          Suspend
-                                        </Button>
-                                      )}
-                                      {u.status !== 'blocked' && (
-                                        <Button
-                                          variant="ghost"
-                                          size="sm"
-                                          onClick={() => {
-                                            setConfirmDialogTitle('Block User Account');
-                                            setConfirmDialogDesc(`Are you sure you want to permanently block ${u.email}? This action is highly restrictive and logs an administrative ban.`);
-                                            setConfirmDialogAction(() => () => {
-                                              handleUpdateUserStatus(u.id, 'blocked');
-                                              setConfirmDialogOpen(false);
-                                            });
-                                            setConfirmDialogOpen(true);
-                                          }}
-                                          className="text-[10px] font-bold h-7 px-2 hover:bg-rose-500/10 hover:text-rose-600"
-                                        >
-                                          Block
-                                        </Button>
-                                      )}
-                                    </>
-                                  )}
-                                </td>
-                              </tr>
-                            );
-                          })}
-                        </tbody>
-                      </table>
-                    );
-                  })()}
-                </div>
-              </Card>
-            </>
+            <AdminPanel
+              users={users}
+              isLoadingUsers={isLoadingUsers}
+              session={session}
+              handleUpdateUserStatus={handleUpdateUserStatus}
+              setConfirmDialogTitle={setConfirmDialogTitle}
+              setConfirmDialogDesc={setConfirmDialogDesc}
+              setConfirmDialogAction={setConfirmDialogAction}
+              setConfirmDialogOpen={setConfirmDialogOpen}
+            />
           )}
 
         </main>
