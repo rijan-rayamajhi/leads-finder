@@ -1,4 +1,6 @@
 import type { Metadata, Viewport } from "next";
+import { Geist, Geist_Mono } from "next/font/google";
+import "./globals.css";
 
 export const viewport: Viewport = {
   width: "device-width",
@@ -6,8 +8,6 @@ export const viewport: Viewport = {
   maximumScale: 1,
   userScalable: false,
 };
-import { Geist, Geist_Mono } from "next/font/google";
-import "./globals.css";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -20,7 +20,7 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Leads Finder — High-Intent Cold Call Pipeline",
+  title: "Aetheron Studio CRM — High-Intent Cold Call Pipeline",
   description: "Identify high-intent local business leads without websites or with broken pages, evaluate marketing scores, and streamline your sales calls.",
 };
 

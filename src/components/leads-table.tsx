@@ -13,9 +13,9 @@ import { Badge } from '@/components/ui/badge';
 import { Card, CardContent } from '@/components/ui/card';
 import { 
   Phone, 
-  Check, 
   Search, 
   ChevronLeft,
+
   ChevronRight,
   ChevronsLeft,
   ChevronsRight,

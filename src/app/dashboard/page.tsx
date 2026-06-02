@@ -14,6 +14,9 @@ import { LeadsTable } from '@/components/leads-table';
 import { CRMLeadsTable } from '@/components/crm-leads-table';
 import { Lead, PipelineResult } from '@/types/lead';
 import { SearchHistoryItem } from '@/types/history';
+import { supabaseClient } from '@/lib/supabaseClient';
+import { Session } from '@supabase/supabase-js';
+
 import Image from 'next/image';
 import Link from 'next/link';
 import { 
@@ -46,8 +49,16 @@ import {
   Sparkles,
   Check,
   Zap,
-  Video
+  Video,
+  Users,
+  LogOut,
+  Lock,
+  ShieldAlert,
+  ShieldCheck,
+  Ban
 } from 'lucide-react';
+
+
 
 const SUGGESTIONS = [
   'salons in mumbai',
@@ -57,7 +68,61 @@ const SUGGESTIONS = [
   'real estate agents in hyderabad',
 ];
 
+interface UserProfile {
+  id: string;
+  email: string;
+  full_name: string;
+  avatar_url: string;
+  role: 'super_admin' | 'user';
+  status: 'pending' | 'approved' | 'rejected' | 'disabled' | 'blocked';
+  created_at: string;
+  updated_at: string;
+}
+
+function SafeAvatar({ src, name, email, className }: { src: string | null | undefined; name: string | null; email: string | null; className?: string }) {
+  const [prevSrc, setPrevSrc] = useState(src);
+  const [isError, setIsError] = useState(false);
+
+  if (src !== prevSrc) {
+    setPrevSrc(src);
+    setIsError(false);
+  }
+
+  const hasAvatar = src && src.trim() !== '' && src !== 'undefined' && src !== 'null' && !isError;
+
+  if (hasAvatar) {
+    return (
+      // eslint-disable-next-line @next/next/no-img-element
+      <img
+        src={src}
+        alt="Avatar"
+        className={className}
+        onError={() => setIsError(true)}
+      />
+    );
+  }
+
+  return (
+    <div className="w-8 h-8 rounded-full bg-primary/10 border border-primary/20 flex items-center justify-center font-bold text-xs text-primary shrink-0 shadow-sm">
+      {name?.charAt(0) || email?.charAt(0).toUpperCase() || 'U'}
+    </div>
+  );
+}
+
 export default function LeadGenDashboard() {
+  // Authentication & Session States
+  const [session, setSession] = useState<Session | null>(null);
+  const [profile, setProfile] = useState<UserProfile | null>(null);
+  const [isSyncingAuth, setIsSyncingAuth] = useState(true);
+
+  // User Management State (Super Admin only)
+  const [users, setUsers] = useState<UserProfile[]>([]);
+  const [isLoadingUsers, setIsLoadingUsers] = useState(false);
+  const [usersRefreshTrigger, setUsersRefreshTrigger] = useState(0);
+  const [userSearchQuery, setUserSearchQuery] = useState('');
+  const [userStatusFilter, setUserStatusFilter] = useState<string>('all');
+
+
   const [query, setQuery] = useState('');
   const [showAll, setShowAll] = useState(false);
   const [intent, setIntent] = useState<'high' | 'low' | 'all'>('high');
@@ -108,9 +173,9 @@ export default function LeadGenDashboard() {
   const [history, setHistory] = useState<SearchHistoryItem[]>([]);
 
   // Navigation and filter states
-  const [activeTab, _setActiveTab] = useState<'prospects' | 'crm' | 'history'>('prospects');
+  const [activeTab, _setActiveTab] = useState<'prospects' | 'crm' | 'history' | 'users'>('prospects');
 
-  const setActiveTab = (tab: 'prospects' | 'crm' | 'history') => {
+  const setActiveTab = (tab: 'prospects' | 'crm' | 'history' | 'users') => {
     _setActiveTab(tab);
     if (typeof window !== 'undefined') {
       localStorage.setItem('leads_finder_active_tab', tab);
@@ -120,17 +185,18 @@ export default function LeadGenDashboard() {
 
   useEffect(() => {
     if (typeof window !== 'undefined') {
-      const hash = window.location.hash.replace('#', '') as 'prospects' | 'crm' | 'history';
-      if (['prospects', 'crm', 'history'].includes(hash)) {
+      const hash = window.location.hash.replace('#', '') as 'prospects' | 'crm' | 'history' | 'users';
+      if (['prospects', 'crm', 'history', 'users'].includes(hash)) {
         setTimeout(() => _setActiveTab(hash), 0);
       } else {
-        const savedTab = localStorage.getItem('leads_finder_active_tab') as 'prospects' | 'crm' | 'history';
-        if (['prospects', 'crm', 'history'].includes(savedTab)) {
+        const savedTab = localStorage.getItem('leads_finder_active_tab') as 'prospects' | 'crm' | 'history' | 'users';
+        if (['prospects', 'crm', 'history', 'users'].includes(savedTab)) {
           setTimeout(() => _setActiveTab(savedTab), 0);
         }
       }
     }
   }, []);
+
 
   const [searchFilter, setSearchFilter] = useState<string | null>(null);
 
@@ -165,9 +231,46 @@ export default function LeadGenDashboard() {
   const [confirmDialogTitle, setConfirmDialogTitle] = useState('');
   const [confirmDialogDesc, setConfirmDialogDesc] = useState('');
 
-  const fetchHistory = async () => {
+  // 1. Synchronize current user state via secure /api/me sync logic
+  const syncProfile = async (currentSession: Session | null) => {
+    if (!currentSession) return;
     try {
-      const res = await fetch('/api/history');
+      const res = await fetch('/api/me', {
+        headers: {
+          Authorization: `Bearer ${currentSession.access_token}`
+        }
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setProfile(data);
+      } else {
+        const errData = await res.json().catch(() => ({}));
+        console.error('Failed to sync authentication profile details:', errData.error || res.statusText);
+        if (res.status === 401 || res.status === 403) {
+          setProfile(null);
+          // Sign out client-side to clear the invalid or expired session from localStorage
+          supabaseClient.auth.signOut().catch((err) => {
+            console.error('Failed to sign out after unauthorized sync:', err);
+          });
+        }
+      }
+
+    } catch (err) {
+      console.error('Profile synchronization error:', err);
+      // Do not clear the existing profile on transient network errors to avoid kicking the user to the login screen
+    } finally {
+      setIsSyncingAuth(false);
+    }
+  };
+
+  const fetchHistory = async (sess: Session | null = session) => {
+    if (!sess) return;
+    try {
+      const res = await fetch('/api/history', {
+        headers: {
+          Authorization: `Bearer ${sess.access_token}`
+        }
+      });
       if (res.ok) {
         const data = await res.json();
         setHistory(data);
@@ -177,12 +280,157 @@ export default function LeadGenDashboard() {
     }
   };
 
+  // 2. Initial Authentication Listeners & State Sync on mount
   useEffect(() => {
-    const timer = setTimeout(() => {
-      fetchHistory();
-    }, 0);
-    return () => clearTimeout(timer);
+    // Check for initial session state
+    supabaseClient.auth.getSession().then(({ data: { session: initialSession } }) => {
+      setSession(initialSession);
+      if (initialSession) {
+        syncProfile(initialSession);
+      } else {
+        setIsSyncingAuth(false);
+      }
+    });
+
+    // Subscriptions for user authentication state changes
+    const { data: { subscription } } = supabaseClient.auth.onAuthStateChange((_event, currentSession) => {
+      setSession(currentSession);
+      if (currentSession) {
+        syncProfile(currentSession);
+      } else {
+        setProfile(null);
+        setIsSyncingAuth(false);
+      }
+    });
+
+    return () => {
+      subscription.unsubscribe();
+    };
   }, []);
+
+  // Fetch search history only when user session is active and profile status is approved
+  useEffect(() => {
+    if (session && profile && profile.status === 'approved') {
+      setTimeout(() => {
+        fetchHistory(session);
+      }, 0);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [session, profile]);
+
+  // 3. Auto-polling interval: checks pending status every 5 seconds until approved
+  useEffect(() => {
+    if (!session || !profile || profile.status !== 'pending') return;
+
+    const interval = setInterval(() => {
+      syncProfile(session);
+    }, 5000);
+
+    return () => clearInterval(interval);
+  }, [session, profile]);
+
+
+
+  // 4. Admin View Loader Hook: loads users list if admin and users tab active
+  useEffect(() => {
+    if (activeTab !== 'users' || !session || profile?.role !== 'super_admin') return;
+
+    let active = true;
+    const timer = setTimeout(() => {
+      if (active) setIsLoadingUsers(true);
+    }, 0);
+
+    fetch('/api/admin/users', {
+      headers: {
+        Authorization: `Bearer ${session.access_token}`
+      }
+    })
+      .then((res) => {
+        if (!res.ok) throw new Error('Failed to fetch user profiles list.');
+        return res.json();
+      })
+      .then((data) => {
+        if (active) {
+          setUsers(data);
+        }
+      })
+      .catch((err) => {
+        console.error('Admin fetching users error:', err);
+      })
+      .finally(() => {
+        clearTimeout(timer);
+        if (active) setIsLoadingUsers(false);
+      });
+
+    return () => {
+      active = false;
+      clearTimeout(timer);
+    };
+  }, [activeTab, session, profile, usersRefreshTrigger]);
+
+
+  // 5. Admin Status update trigger handler
+  const handleUpdateUserStatus = async (userId: string, newStatus: string) => {
+    if (!session) return;
+    try {
+      const res = await fetch('/api/admin/users', {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${session.access_token}`
+        },
+        body: JSON.stringify({ id: userId, status: newStatus })
+      });
+      if (res.ok) {
+        setUsersRefreshTrigger(prev => prev + 1);
+        setErrorText(null);
+      } else {
+        const errorData = await res.json();
+        setErrorText(errorData.error || 'Failed to update user status.');
+      }
+    } catch (err) {
+      console.error('Error updating user status:', err);
+      setErrorText('Failed to update user status.');
+    }
+  };
+
+  // OAuth Google authentication triggers
+  const handleGoogleSignIn = async () => {
+    try {
+      setIsSyncingAuth(true);
+      const { error } = await supabaseClient.auth.signInWithOAuth({
+        provider: 'google',
+        options: {
+          redirectTo: `${window.location.origin}/dashboard`
+        }
+      });
+      if (error) throw error;
+    } catch (err: unknown) {
+      const error = err as Error;
+      console.error('Google Sign-in error:', error.message);
+      setErrorText(error.message || 'Failed to initialize Google Authentication.');
+      setIsSyncingAuth(false);
+    }
+  };
+
+  const handleSignOut = async () => {
+    try {
+      setIsSyncingAuth(true);
+      const { error } = await supabaseClient.auth.signOut();
+      if (error) throw error;
+      setSession(null);
+      setProfile(null);
+      setActiveTab('prospects');
+    } catch (err: unknown) {
+      const error = err as Error;
+      console.error('Sign-out error:', error.message);
+      setErrorText(error.message || 'Failed to sign out.');
+    } finally {
+      setIsSyncingAuth(false);
+    }
+  };
+
+
 
   // Auto-scroll scraper console locally to bottom as logs stream in
   useEffect(() => {
@@ -243,13 +491,19 @@ export default function LeadGenDashboard() {
   }, [displayProgress, isStreamDone]);
 
   useEffect(() => {
+    if (!session || !profile || profile.status !== 'approved') return;
+
     let active = true;
     
     const timer = setTimeout(() => {
       if (active) setIsLoadingLeads(true);
     }, 0);
 
-    fetch(`/api/leads?called=false&showAll=${showAll}&intent=${intent}`)
+    fetch(`/api/leads?called=false&showAll=${showAll}&intent=${intent}`, {
+      headers: {
+        Authorization: `Bearer ${session.access_token}`
+      }
+    })
       .then((res) => {
         if (!res.ok) throw new Error('Failed to fetch leads from server.');
         return res.json();
@@ -275,19 +529,23 @@ export default function LeadGenDashboard() {
       active = false;
       clearTimeout(timer);
     };
-  }, [showAll, intent, refreshTrigger]);
+  }, [showAll, intent, refreshTrigger, session, profile]);
 
   // Fetch CRM leads (called = true)
   useEffect(() => {
+    if (!session || !profile || profile.status !== 'approved' || activeTab !== 'crm') return;
+
     let active = true;
     
-    if (activeTab !== 'crm') return;
-
     const timer = setTimeout(() => {
       if (active) setIsLoadingCrm(true);
     }, 0);
 
-    fetch('/api/leads?called=true')
+    fetch('/api/leads?called=true', {
+      headers: {
+        Authorization: `Bearer ${session.access_token}`
+      }
+    })
       .then((res) => {
         if (!res.ok) throw new Error('Failed to fetch CRM leads.');
         return res.json();
@@ -313,7 +571,7 @@ export default function LeadGenDashboard() {
       active = false;
       clearTimeout(timer);
     };
-  }, [activeTab, crmRefreshTrigger]);
+  }, [activeTab, crmRefreshTrigger, session, profile]);
 
   // Update CRM Lead details (status, notes, deal value, follow-up)
   const handleUpdateCRMLead = async (id: number, fields: Partial<Lead>) => {
@@ -352,9 +610,13 @@ export default function LeadGenDashboard() {
 
       const res = await fetch('/api/leads', {
         method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${session?.access_token}`
+        },
         body: JSON.stringify({ id, ...fields }),
       });
+
 
       if (!res.ok) {
         throw new Error('Failed to save CRM details.');
@@ -536,9 +798,13 @@ export default function LeadGenDashboard() {
     try {
       const res = await fetch('/api/run', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${session?.access_token}`
+        },
         body: JSON.stringify({ query: query.trim() }),
       });
+
 
       if (!res.ok) {
         throw new Error('Pipeline execution initiation failed.');
@@ -608,6 +874,9 @@ export default function LeadGenDashboard() {
     try {
       const res = await fetch(`/api/history?id=${id}`, {
         method: 'DELETE',
+        headers: {
+          Authorization: `Bearer ${session?.access_token}`
+        }
       });
       if (res.ok) {
         setHistory((prev) => prev.filter((item) => item.id !== id));
@@ -628,6 +897,9 @@ export default function LeadGenDashboard() {
       try {
         const res = await fetch('/api/history?all=true', {
           method: 'DELETE',
+          headers: {
+            Authorization: `Bearer ${session?.access_token}`
+          }
         });
         if (res.ok) {
           setHistory([]);
@@ -677,9 +949,13 @@ export default function LeadGenDashboard() {
     try {
       const res = await fetch('/api/leads', {
         method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${session?.access_token}`
+        },
         body: JSON.stringify({ id, called: true, crm_status: crmStatus || 'no_answer' }),
       });
+
 
       if (!res.ok) {
         throw new Error('Could not update lead status.');
@@ -818,8 +1094,176 @@ export default function LeadGenDashboard() {
     return compDate.getTime() <= today.getTime();
   }).length;
 
+  // 1. Loading Overlay state while syncing authentication session details
+  if (isSyncingAuth) {
+    return (
+      <div className="min-h-screen bg-background flex flex-col items-center justify-center font-sans p-4">
+        <div className="flex flex-col items-center space-y-4 max-w-[260px] w-full text-center">
+          <div className="h-14 w-14 rounded border border-border flex items-center justify-center bg-background shadow-none relative mb-1 animate-pulse">
+            <Image src="/logo_v2.png" alt="Aetheron Studio CRM" width={42} height={42} className="object-contain" style={{ width: '42px', height: '42px' }} />
+          </div>
+          <div className="space-y-1">
+            <p className="text-sm font-medium text-foreground tracking-tight flex items-center justify-center gap-2">
+              <Loader2 className="w-3.5 h-3.5 text-muted-foreground animate-spin" />
+              Establishing secure session
+            </p>
+            <p className="text-[11px] text-muted-foreground">Verifying tokens and credentials...</p>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // 2. Minimalist Stock Shadcn Login screen when unauthenticated
+  if (!session || !profile) {
+    return (
+      <div className="min-h-screen bg-background flex flex-col items-center justify-center font-sans p-4">
+        <div className="w-full max-w-[400px] border border-border bg-card rounded-lg shadow-none p-6 sm:p-8 space-y-6 text-left">
+          <div className="flex flex-col space-y-2">
+            <div className="h-12 w-12 rounded border border-border flex items-center justify-center bg-background shadow-none mb-1">
+              <Image src="/logo_v2.png" alt="Aetheron Studio CRM" width={38} height={38} className="object-contain" style={{ width: '38px', height: '38px' }} />
+            </div>
+            <h2 className="text-2xl font-semibold tracking-tight text-foreground">Welcome back</h2>
+            <p className="text-sm text-muted-foreground">
+              Log in with your administrator account to access the scraping console, search history, and pipeline CRM.
+            </p>
+          </div>
+
+          {errorText && (
+            <Alert variant="destructive" className="rounded-lg shadow-none text-xs">
+              <AlertTriangle className="h-4 w-4 shrink-0" />
+              <AlertDescription>{errorText}</AlertDescription>
+            </Alert>
+          )}
+
+          <div className="space-y-4">
+            <Button 
+              onClick={handleGoogleSignIn} 
+              variant="outline"
+              className="w-full h-10 text-sm font-medium shadow-none hover:bg-accent hover:text-accent-foreground flex items-center justify-center gap-2"
+            >
+              <svg className="w-4 h-4 shrink-0" viewBox="0 0 24 24">
+                <path
+                  fill="currentColor"
+                  d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"
+                />
+                <path
+                  fill="currentColor"
+                  d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"
+                />
+                <path
+                  fill="currentColor"
+                  d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l3.66-2.85z"
+                />
+                <path
+                  fill="currentColor"
+                  d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.85c.87-2.6 3.3-4.53 6.16-4.53z"
+                />
+              </svg>
+              Sign in with Google
+            </Button>
+          </div>
+
+          <div className="text-[11px] text-muted-foreground/60 border-t border-border/60 pt-4 text-center">
+            Aetheron Studio CRM &copy; {new Date().getFullYear()}. Secure OAuth Gateway.
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // 3. Access Approval Pending Gateway Screen (polls sync profile every 5 seconds)
+  if (profile.status === 'pending') {
+    return (
+      <div className="min-h-screen bg-background flex flex-col items-center justify-center font-sans p-4">
+        <div className="w-full max-w-[400px] border border-border bg-card rounded-lg shadow-none p-6 sm:p-8 space-y-6 text-left">
+          <div className="flex flex-col space-y-2">
+            <div className="h-12 w-12 rounded border border-border flex items-center justify-center bg-background shadow-none mb-1">
+              <ShieldAlert className="w-6 h-6 text-amber-500" />
+            </div>
+            <h2 className="text-2xl font-semibold tracking-tight text-foreground">Approval Pending</h2>
+            <div className="space-y-3 text-sm text-muted-foreground">
+              <p>
+                Your email <span className="text-foreground font-semibold">{profile.email}</span> has been registered.
+              </p>
+              <p className="leading-relaxed">
+                To protect databases and ensure system stability, all new accounts require verified administrator approval before seeing the main dashboard.
+              </p>
+            </div>
+          </div>
+
+          <div className="inline-flex items-center gap-2 px-2.5 py-1 rounded bg-secondary text-secondary-foreground text-xs font-medium border border-border">
+            <RefreshCw className="w-3 h-3 animate-spin" />
+            <span>Auto-checking approval status...</span>
+          </div>
+
+          <div className="flex flex-col gap-2 pt-2">
+            <Button 
+              onClick={() => syncProfile(session)} 
+              variant="outline" 
+              className="w-full h-10 text-sm font-medium shadow-none"
+            >
+              Check Approval Status
+            </Button>
+            <Button 
+              onClick={handleSignOut} 
+              variant="ghost" 
+              className="w-full h-10 text-sm font-medium text-muted-foreground hover:text-destructive hover:bg-destructive/10"
+            >
+              Sign Out / Switch Account
+            </Button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // 4. Access Denied Portal for Disabled, Blocked, or Rejected profiles
+  if (['rejected', 'disabled', 'blocked'].includes(profile.status)) {
+    const isBlocked = profile.status === 'blocked';
+    const isDisabled = profile.status === 'disabled';
+
+    return (
+      <div className="min-h-screen bg-background flex flex-col items-center justify-center font-sans p-4">
+        <div className="w-full max-w-[400px] border border-border bg-card rounded-lg shadow-none p-6 sm:p-8 space-y-6 text-left">
+          <div className="flex flex-col space-y-2">
+            <div className="h-12 w-12 rounded border border-border flex items-center justify-center bg-background shadow-none mb-1">
+              {isBlocked ? <Lock className="w-6 h-6 text-destructive" /> : <Ban className="w-6 h-6 text-destructive" />}
+            </div>
+            <h2 className="text-2xl font-semibold tracking-tight text-destructive">
+              {isBlocked ? 'Account Blocked' : isDisabled ? 'Account Suspended' : 'Access Denied'}
+            </h2>
+            <div className="space-y-3 text-sm text-muted-foreground">
+              <p>
+                Account ID: <span className="text-foreground font-semibold">{profile.email}</span>
+              </p>
+              <p className="leading-relaxed">
+                {isBlocked 
+                  ? 'This account has been permanently banned due to policy violations. Access is restricted.' 
+                  : isDisabled 
+                  ? 'Your account has been temporarily disabled by an administrator. Please contact your coordinator to resolve this suspension.' 
+                  : 'Your request for access has been rejected by an administrator. Verification failed.'}
+              </p>
+            </div>
+          </div>
+
+          <div className="pt-2">
+            <Button 
+              onClick={handleSignOut} 
+              variant="outline" 
+              className="w-full h-10 text-sm font-medium border-destructive/20 text-destructive hover:bg-destructive/10 hover:text-destructive shadow-none"
+            >
+              Sign Out of Account
+            </Button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen bg-background flex font-sans antialiased text-foreground overflow-x-hidden w-full max-w-full relative">
+
       {/* Desktop Left Sidebar */}
       <aside className={`hidden lg:flex border-r border-border bg-card flex-col fixed inset-y-0 left-0 z-40 transition-all duration-300 ease-in-out ${
         leftSidebarCollapsed ? 'w-16' : 'w-64'
@@ -827,12 +1271,12 @@ export default function LeadGenDashboard() {
         <Link href="/" className={`h-16 border-b border-border flex items-center shrink-0 bg-card transition-all duration-300 hover:bg-muted/30 ${
           leftSidebarCollapsed ? 'px-4 justify-center' : 'px-6 gap-2.5'
         }`}>
-          <Image src="/logo.svg" alt="Leads Finder" width={28} height={28} className="w-7 h-7 rounded-lg object-contain shadow-sm border border-border/50" />
-          {!leftSidebarCollapsed && <span className="text-sm font-bold text-foreground tracking-tight">Leads Finder</span>}
+          <Image src="/logo_v2.png" alt="Aetheron Studio CRM" width={36} height={36} className="rounded-lg object-contain shadow-sm border border-border/50" style={{ width: '36px', height: '36px' }} />
+          {!leftSidebarCollapsed && <span className="text-sm font-bold text-foreground tracking-tight">Aetheron Studio CRM</span>}
         </Link>
         
         {/* Sidebar Navigation */}
-        <nav className={`flex-1 py-6 space-y-1.5 transition-all duration-300 ${
+        <nav className={`flex-grow py-6 space-y-1.5 transition-all duration-300 ${
           leftSidebarCollapsed ? 'px-2' : 'px-4'
         }`}>
           {!leftSidebarCollapsed && (
@@ -863,10 +1307,10 @@ export default function LeadGenDashboard() {
                 ? 'bg-primary/10 text-primary'
                 : 'text-muted-foreground hover:bg-muted/50 hover:text-foreground'
             }`}
-            title={leftSidebarCollapsed ? "CRM Dashboard" : undefined}
+            title={leftSidebarCollapsed ? "CRM" : undefined}
           >
             <UserCheck className="w-4 h-4 shrink-0" />
-            {!leftSidebarCollapsed && <span>CRM Dashboard</span>}
+            {!leftSidebarCollapsed && <span>CRM</span>}
             {pendingFollowUps > 0 && (
               <Badge variant="destructive" className={`text-[8px] h-4 min-w-[16px] px-1 flex items-center justify-center animate-pulse ${leftSidebarCollapsed ? 'absolute -top-1 -right-1' : 'ml-auto'}`}>
                 {pendingFollowUps}
@@ -887,7 +1331,26 @@ export default function LeadGenDashboard() {
             <History className="w-4 h-4 shrink-0" />
             {!leftSidebarCollapsed && <span>History</span>}
           </button>
+
+          {profile?.role === 'super_admin' && (
+            <button
+              onClick={() => setActiveTab('users')}
+              className={`w-full flex items-center rounded-lg text-xs font-semibold transition-all ${
+                leftSidebarCollapsed ? 'justify-center p-2' : 'gap-3 px-3 py-2'
+              } ${
+                activeTab === 'users'
+                  ? 'bg-primary/10 text-primary'
+                  : 'text-muted-foreground hover:bg-muted/50 hover:text-foreground'
+              }`}
+              title={leftSidebarCollapsed ? "User" : undefined}
+            >
+              <Users className="w-4 h-4 shrink-0" />
+              {!leftSidebarCollapsed && <span>User</span>}
+            </button>
+          )}
         </nav>
+
+        {/* Sidebar User Widget - Moved to Header */}
 
         {/* Sidebar Footer / Collapse Toggle */}
         <div className={`p-4 border-t border-border shrink-0 bg-muted/10 transition-all duration-300 ${
@@ -903,6 +1366,7 @@ export default function LeadGenDashboard() {
             {leftSidebarCollapsed ? <ChevronRight className="w-4 h-4" /> : <ChevronLeft className="w-4 h-4" />}
           </Button>
         </div>
+
       </aside>
 
       {/* Mobile Navigation Drawer - Using Shadcn Sheet */}
@@ -910,8 +1374,8 @@ export default function LeadGenDashboard() {
         <SheetContent side="left" className="w-64 p-0">
           <SheetHeader className="h-16 border-b border-border flex flex-row items-center gap-2.5 px-6 space-y-0">
             <Link href="/" className="flex items-center gap-2.5 hover:opacity-80" onClick={() => setMobileMenuOpen(false)}>
-              <Image src="/logo.svg" alt="Leads Finder" width={28} height={28} className="w-7 h-7 rounded-lg object-contain shadow-sm border border-border/50" />
-              <SheetTitle className="text-sm font-bold tracking-tight">Leads Finder</SheetTitle>
+              <Image src="/logo_v2.png" alt="Aetheron Studio CRM" width={36} height={36} className="rounded-lg object-contain shadow-sm border border-border/50" style={{ width: '36px', height: '36px' }} />
+              <SheetTitle className="text-sm font-bold tracking-tight">Aetheron Studio CRM</SheetTitle>
             </Link>
           </SheetHeader>
           <SheetDescription className="sr-only">Navigation menu</SheetDescription>
@@ -946,7 +1410,7 @@ export default function LeadGenDashboard() {
               }`}
             >
               <UserCheck className="w-4 h-4 shrink-0" />
-              CRM Dashboard
+              CRM
               {pendingFollowUps > 0 && (
                 <Badge variant="destructive" className="ml-auto text-[8px] h-4 min-w-[16px] px-1 animate-pulse">
                   {pendingFollowUps}
@@ -967,6 +1431,24 @@ export default function LeadGenDashboard() {
               <History className="w-4 h-4 shrink-0" />
               History
             </button>
+
+            {profile?.role === 'super_admin' && (
+              <button
+                onClick={() => {
+                  setActiveTab('users');
+                  setMobileMenuOpen(false);
+                }}
+                className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-xs font-semibold transition-all ${
+                  activeTab === 'users'
+                    ? 'bg-primary/10 text-primary'
+                    : 'text-muted-foreground hover:bg-muted/50 hover:text-foreground'
+                }`}
+              >
+                <Users className="w-4 h-4 shrink-0" />
+                User
+              </button>
+            )}
+
           </nav>
         </SheetContent>
       </Sheet>
@@ -990,48 +1472,44 @@ export default function LeadGenDashboard() {
               </Button>
               <div className="flex items-center gap-2.5">
                 <Link href="/" className="flex items-center gap-2 lg:hidden hover:opacity-80">
-                  <Image src="/logo.svg" alt="Leads Finder" width={24} height={24} className="w-6 h-6 rounded-md object-contain shadow-sm border border-border/50" />
+                  <Image src="/logo_v2.png" alt="Aetheron Studio CRM" width={36} height={36} className="rounded-lg object-contain shadow-sm border border-border/50" style={{ width: '36px', height: '36px' }} />
                 </Link>
                 <h1 className="text-sm font-bold text-foreground leading-none">
-                  {activeTab === 'prospects' ? 'Prospects' : activeTab === 'crm' ? 'CRM Dashboard' : 'Search History'}
+                  {activeTab === 'prospects' ? 'Prospects' : activeTab === 'crm' ? 'CRM' : activeTab === 'history' ? 'History' : 'User'}
                 </h1>
               </div>
             </div>
             
-            {/* Header Right Content: Active tab metrics and refresh quick actions */}
-            <div className="flex items-center gap-2">
+            {/* Header Right Content: Active tab metrics, refresh quick actions, and user profile */}
+            <div className="flex items-center gap-3">
               {activeTab === 'prospects' && (
-                <>
-                  <Button
-                    variant="outline"
-                    size="icon"
-                    onClick={() => {
-                      setRefreshTrigger((prev) => prev + 1);
-                      setCurrentPage(1);
-                    }}
-                    className="h-8 w-8 text-muted-foreground hover:text-foreground hover:bg-muted"
-                    title="Refresh Prospects"
-                  >
-                    <RefreshCw className={`w-3.5 h-3.5 ${isLoadingLeads ? 'animate-spin text-primary' : ''}`} />
-                  </Button>
-                </>
+                <Button
+                  variant="outline"
+                  size="icon"
+                  onClick={() => {
+                    setRefreshTrigger((prev) => prev + 1);
+                    setCurrentPage(1);
+                  }}
+                  className="h-8 w-8 text-muted-foreground hover:text-foreground hover:bg-muted"
+                  title="Refresh Prospects"
+                >
+                  <RefreshCw className={`w-3.5 h-3.5 ${isLoadingLeads ? 'animate-spin text-primary' : ''}`} />
+                </Button>
               )}
 
               {activeTab === 'crm' && (
-                <>
-                  <Button
-                    variant="outline"
-                    size="icon"
-                    onClick={() => {
-                      setCrmRefreshTrigger((prev) => prev + 1);
-                      setCurrentPage(1);
-                    }}
-                    className="h-8 w-8 text-muted-foreground hover:text-foreground hover:bg-muted"
-                    title="Sync CRM Database"
-                  >
-                    <RefreshCw className={`w-3.5 h-3.5 ${isLoadingCrm ? 'animate-spin text-emerald-600' : ''}`} />
-                  </Button>
-                </>
+                <Button
+                  variant="outline"
+                  size="icon"
+                  onClick={() => {
+                    setCrmRefreshTrigger((prev) => prev + 1);
+                    setCurrentPage(1);
+                  }}
+                  className="h-8 w-8 text-muted-foreground hover:text-foreground hover:bg-muted"
+                  title="Sync CRM Database"
+                >
+                  <RefreshCw className={`w-3.5 h-3.5 ${isLoadingCrm ? 'animate-spin text-emerald-600' : ''}`} />
+                </Button>
               )}
 
               {activeTab === 'history' && (
@@ -1051,6 +1529,31 @@ export default function LeadGenDashboard() {
                     <RefreshCw className="w-3.5 h-3.5" />
                   </Button>
                 </>
+              )}
+
+              {/* User Profile details & Logout option in Header */}
+              {profile && (
+                <div className="flex items-center gap-2.5 pl-3 border-l border-border h-8 shrink-0">
+                  <SafeAvatar
+                    src={profile.avatar_url}
+                    name={profile.full_name}
+                    email={profile.email}
+                    className="w-8 h-8 rounded-full border border-border object-cover shadow-sm shrink-0"
+                  />
+                  <div className="hidden sm:flex flex-col text-left max-w-[120px] md:max-w-[150px]">
+                    <span className="text-[11px] font-bold text-foreground truncate leading-tight">{profile.full_name || 'Active User'}</span>
+                    <span className="text-[9px] text-muted-foreground truncate leading-none mt-0.5">{profile.email}</span>
+                  </div>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    onClick={handleSignOut}
+                    className="h-8 w-8 text-muted-foreground hover:text-destructive hover:bg-destructive/10 rounded-full shrink-0 ml-1"
+                    title="Sign Out"
+                  >
+                    <LogOut className="w-3.5 h-3.5" />
+                  </Button>
+                </div>
               )}
             </div>
           </div>
@@ -1851,12 +2354,295 @@ export default function LeadGenDashboard() {
               </div>
             </Card>
           )}
+
+          {activeTab === 'users' && profile?.role === 'super_admin' && (
+            <>
+              {/* User management stats card grid */}
+              <section className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4 animate-in fade-in duration-300">
+                <Card className="hover:shadow-md transition-all">
+                  <CardContent className="p-4">
+                    <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider flex items-center gap-1.5">
+                      <Users className="w-3.5 h-3.5 text-primary shrink-0" /> Total Users
+                    </span>
+                    <span className="text-2xl font-bold text-foreground tracking-tight block mt-1">{users.length}</span>
+                  </CardContent>
+                </Card>
+
+                <Card className="hover:shadow-md transition-all">
+                  <CardContent className="p-4">
+                    <span className="text-[10px] font-bold text-emerald-500 uppercase tracking-wider flex items-center gap-1.5">
+                      <ShieldCheck className="w-3.5 h-3.5 text-emerald-500 shrink-0" /> Approved
+                    </span>
+                    <span className="text-2xl font-bold text-emerald-600 dark:text-emerald-400 tracking-tight block mt-1">
+                      {users.filter(u => u.status === 'approved').length}
+                    </span>
+                  </CardContent>
+                </Card>
+
+                <Card className="hover:shadow-md transition-all">
+                  <CardContent className="p-4">
+                    <span className="text-[10px] font-bold text-blue-500 uppercase tracking-wider flex items-center gap-1.5">
+                      <ShieldAlert className="w-3.5 h-3.5 text-blue-500 shrink-0 animate-pulse" /> Pending Approval
+                    </span>
+                    <span className="text-2xl font-bold text-blue-600 dark:text-blue-400 tracking-tight block mt-1">
+                      {users.filter(u => u.status === 'pending').length}
+                    </span>
+                  </CardContent>
+                </Card>
+
+                <Card className="hover:shadow-md transition-all">
+                  <CardContent className="p-4">
+                    <span className="text-[10px] font-bold text-rose-500 uppercase tracking-wider flex items-center gap-1.5">
+                      <Ban className="w-3.5 h-3.5 text-rose-500 shrink-0" /> Blocked/Suspended
+                    </span>
+                    <span className="text-2xl font-bold text-rose-600 dark:text-rose-400 tracking-tight block mt-1">
+                      {users.filter(u => ['blocked', 'disabled', 'rejected'].includes(u.status)).length}
+                    </span>
+                  </CardContent>
+                </Card>
+              </section>
+
+              {/* User management control card */}
+              <Card className="overflow-hidden animate-in fade-in duration-300">
+                <CardHeader className="p-4 sm:p-6 border-b border-border flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-4">
+                  <div>
+                    <CardTitle className="text-base font-bold leading-none flex items-center gap-2">
+                      <Users className="w-4 h-4 text-muted-foreground" />
+                      Registered Member Profiles
+                    </CardTitle>
+                    <CardDescription className="text-[11px] mt-1">
+                      Authorize new administrator requests, manage roles, suspension statuses, and track system registrations.
+                    </CardDescription>
+                  </div>
+                  
+                  {/* Search and Filters */}
+                  <div className="flex flex-col sm:flex-row items-center gap-2">
+                    <div className="relative w-full sm:w-60">
+                      <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground" />
+                      <Input
+                        type="text"
+                        placeholder="Search by email or name..."
+                        value={userSearchQuery}
+                        onChange={(e) => setUserSearchQuery(e.target.value)}
+                        className="pl-9 h-8.5 text-xs"
+                      />
+                    </div>
+                    <Select value={userStatusFilter} onValueChange={setUserStatusFilter}>
+                      <SelectTrigger className="w-full sm:w-36 h-8.5 text-xs">
+                        <SelectValue placeholder="Filter Status" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="all">All Statuses</SelectItem>
+                        <SelectItem value="approved">Approved</SelectItem>
+                        <SelectItem value="pending">Pending</SelectItem>
+                        <SelectItem value="disabled">Disabled</SelectItem>
+                        <SelectItem value="blocked">Blocked</SelectItem>
+                        <SelectItem value="rejected">Rejected</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </CardHeader>
+
+                <div className="overflow-x-auto">
+                  {(() => {
+                    const filteredUsers = users.filter((u) => {
+                      const matchesStatus = userStatusFilter === 'all' || u.status === userStatusFilter;
+                      const matchesSearch = userSearchQuery.trim() === '' ||
+                        (u.full_name || '').toLowerCase().includes(userSearchQuery.toLowerCase()) ||
+                        (u.email || '').toLowerCase().includes(userSearchQuery.toLowerCase());
+                      return matchesStatus && matchesSearch;
+                    });
+
+                    if (isLoadingUsers) {
+                      return (
+                        <div className="flex flex-col items-center justify-center py-16 text-center">
+                          <Loader2 className="w-8 h-8 text-primary animate-spin mb-2" />
+                          <p className="text-xs text-muted-foreground font-semibold">Retrieving user roster database...</p>
+                        </div>
+                      );
+                    }
+
+                    if (filteredUsers.length === 0) {
+                      return (
+                        <div className="flex flex-col items-center justify-center py-16 px-6 text-center m-6 border-2 border-dashed border-border rounded-2xl bg-card/40 backdrop-blur-sm animate-in fade-in duration-300">
+                          <div className="h-12 w-12 rounded-2xl bg-primary/10 border border-primary/20 flex items-center justify-center mb-4">
+                            <Users className="w-5.5 h-5.5 text-primary" />
+                          </div>
+                          <h3 className="font-extrabold text-base text-foreground tracking-tight">No Users Found</h3>
+                          <p className="text-muted-foreground text-xs max-w-sm mt-2 leading-relaxed">
+                            No member records matched your active search query or status filter parameters.
+                          </p>
+                        </div>
+                      );
+                    }
+
+                    return (
+                      <table className="w-full text-left border-collapse min-w-[800px]">
+                        <thead>
+                          <tr className="border-b border-border bg-muted/30 text-[10px] uppercase font-bold text-muted-foreground tracking-wider">
+                            <th className="px-6 py-3.5">User Details</th>
+                            <th className="px-6 py-3.5">Role</th>
+                            <th className="px-6 py-3.5">Current Status</th>
+                            <th className="px-6 py-3.5">Joined Date</th>
+                            <th className="px-6 py-3.5 text-right">Administrative Actions</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-border text-xs">
+                          {filteredUsers.map((u) => {
+                            const isSelf = u.id === session?.user?.id;
+                            const isPrimaryAdmin = u.email?.toLowerCase() === (process.env.NEXT_PUBLIC_SUPER_ADMIN_EMAIL || 'admin@example.com').toLowerCase();
+
+                            return (
+                              <tr key={u.id} className={`hover:bg-muted/20 transition-colors ${isSelf ? 'bg-primary/[0.01]' : ''}`}>
+                                <td className="px-6 py-4 flex items-center gap-3">
+                                  <SafeAvatar
+                                    src={u.avatar_url}
+                                    name={u.full_name}
+                                    email={u.email}
+                                    className="w-8 h-8 rounded-full border border-border object-cover shrink-0"
+                                  />
+                                  <div className="min-w-0">
+                                    <div className="font-bold text-foreground truncate flex items-center gap-1.5">
+                                      {u.full_name || 'Active Member'}
+                                      {isSelf && <Badge variant="outline" className="text-[8px] h-4 px-1 border-primary/30 text-primary bg-primary/5 uppercase font-extrabold tracking-wide">You</Badge>}
+                                    </div>
+                                    <p className="text-[10px] text-muted-foreground truncate leading-none mt-0.5">{u.email}</p>
+                                  </div>
+                                </td>
+                                <td className="px-6 py-4">
+                                  {u.role === 'super_admin' ? (
+                                    <Badge className="bg-amber-500/10 text-amber-600 dark:text-amber-400 text-[10px] font-extrabold border-amber-500/20 uppercase tracking-wider flex items-center gap-1 w-fit">
+                                      <Award className="w-3 h-3 text-amber-500" /> Super Admin
+                                    </Badge>
+                                  ) : (
+                                    <Badge variant="secondary" className="text-[10px] uppercase font-bold tracking-wider w-fit">
+                                      Standard User
+                                    </Badge>
+                                  )}
+                                </td>
+                                <td className="px-6 py-4">
+                                  <Badge className={`text-[10px] font-extrabold uppercase tracking-wider w-fit flex items-center gap-1 ${
+                                    u.status === 'approved'
+                                      ? 'bg-emerald-500/10 text-emerald-600 border-emerald-500/20'
+                                      : u.status === 'pending'
+                                      ? 'bg-blue-500/10 text-blue-600 border-blue-500/20 animate-pulse'
+                                      : u.status === 'disabled'
+                                      ? 'bg-amber-500/10 text-amber-600 border-amber-500/20'
+                                      : u.status === 'blocked'
+                                      ? 'bg-rose-500/10 text-rose-600 border-rose-500/20'
+                                      : 'bg-muted text-muted-foreground border-border'
+                                  }`}>
+                                    {u.status === 'approved' && <ShieldCheck className="w-3 h-3" />}
+                                    {u.status === 'pending' && <ShieldAlert className="w-3 h-3" />}
+                                    {u.status === 'disabled' && <Ban className="w-3 h-3" />}
+                                    {u.status === 'blocked' && <Lock className="w-3 h-3" />}
+                                    {u.status}
+                                  </Badge>
+                                </td>
+                                <td className="px-6 py-4 text-muted-foreground font-medium">
+                                  {new Date(u.created_at).toLocaleString('en-IN', {
+                                    dateStyle: 'medium',
+                                  })}
+                                </td>
+                                <td className="px-6 py-4 text-right space-x-1.5 whitespace-nowrap">
+                                  {/* Locking primary admin controls */}
+                                  {isPrimaryAdmin ? (
+                                    <span className="text-[10px] text-muted-foreground/60 font-semibold italic pr-2">System Protected</span>
+                                  ) : (
+                                    <>
+                                      {u.status !== 'approved' && (
+                                        <Button
+                                          variant="outline"
+                                          size="sm"
+                                          onClick={() => {
+                                            setConfirmDialogTitle('Approve Account Access');
+                                            setConfirmDialogDesc(`Are you sure you want to approve access for ${u.email}? They will gain immediate entry to the prospects database and pipeline CRM.`);
+                                            setConfirmDialogAction(() => () => {
+                                              handleUpdateUserStatus(u.id, 'approved');
+                                              setConfirmDialogOpen(false);
+                                            });
+                                            setConfirmDialogOpen(true);
+                                          }}
+                                          className="text-[10px] font-bold h-7 px-2 bg-emerald-500/5 hover:bg-emerald-500/10 text-emerald-600 border-emerald-500/20"
+                                        >
+                                          Approve
+                                        </Button>
+                                      )}
+                                      {u.status === 'pending' && (
+                                        <Button
+                                          variant="outline"
+                                          size="sm"
+                                          onClick={() => {
+                                            setConfirmDialogTitle('Reject Request');
+                                            setConfirmDialogDesc(`Are you sure you want to reject the registration request from ${u.email}?`);
+                                            setConfirmDialogAction(() => () => {
+                                              handleUpdateUserStatus(u.id, 'rejected');
+                                              setConfirmDialogOpen(false);
+                                            });
+                                            setConfirmDialogOpen(true);
+                                          }}
+                                          className="text-[10px] font-bold h-7 px-2 bg-orange-500/5 hover:bg-orange-500/10 text-orange-600 border-orange-500/20"
+                                        >
+                                          Reject
+                                        </Button>
+                                      )}
+                                      {u.status === 'approved' && (
+                                        <Button
+                                          variant="outline"
+                                          size="sm"
+                                          onClick={() => {
+                                            setConfirmDialogTitle('Suspend User Access');
+                                            setConfirmDialogDesc(`Are you sure you want to temporarily disable pipeline access for ${u.email}?`);
+                                            setConfirmDialogAction(() => () => {
+                                              handleUpdateUserStatus(u.id, 'disabled');
+                                              setConfirmDialogOpen(false);
+                                            });
+                                            setConfirmDialogOpen(true);
+                                          }}
+                                          className="text-[10px] font-bold h-7 px-2 bg-amber-500/5 hover:bg-amber-500/10 text-amber-600 border-amber-500/20"
+                                        >
+                                          Suspend
+                                        </Button>
+                                      )}
+                                      {u.status !== 'blocked' && (
+                                        <Button
+                                          variant="ghost"
+                                          size="sm"
+                                          onClick={() => {
+                                            setConfirmDialogTitle('Block User Account');
+                                            setConfirmDialogDesc(`Are you sure you want to permanently block ${u.email}? This action is highly restrictive and logs an administrative ban.`);
+                                            setConfirmDialogAction(() => () => {
+                                              handleUpdateUserStatus(u.id, 'blocked');
+                                              setConfirmDialogOpen(false);
+                                            });
+                                            setConfirmDialogOpen(true);
+                                          }}
+                                          className="text-[10px] font-bold h-7 px-2 hover:bg-rose-500/10 hover:text-rose-600"
+                                        >
+                                          Block
+                                        </Button>
+                                      )}
+                                    </>
+                                  )}
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    );
+                  })()}
+                </div>
+              </Card>
+            </>
+          )}
+
         </main>
 
         {/* Integrated Footer */}
         <footer className="bg-card border-t border-border py-4 text-center text-[10px] text-muted-foreground shrink-0 mt-auto">
           <div className="max-w-7xl mx-auto px-4">
-            Leads Finder &copy; {new Date().getFullYear()}.
+            Aetheron Studio CRM &copy; {new Date().getFullYear()}.
           </div>
         </footer>
 

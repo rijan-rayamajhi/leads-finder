@@ -4,11 +4,15 @@ import { scoreLead, isDisqualified } from '@/lib/scorer';
 import { normalizePhone, normalizeWebsite } from '@/lib/deduplicator';
 import { supabase } from '@/lib/supabase';
 import { PipelineResult } from '@/types/lead';
+import { verifySession } from '@/lib/authGuard';
 
 export const dynamic = 'force-dynamic';
 
 export async function POST(req: NextRequest) {
   try {
+    // Enforce active approved session authority
+    await verifySession(req);
+
     const { query } = await req.json();
 
     if (!query || typeof query !== 'string') {
@@ -310,7 +314,13 @@ export async function POST(req: NextRequest) {
     });
   } catch (err: unknown) {
     const error = err as Error;
-    console.error('Pipeline error:', error);
-    return NextResponse.json({ error: error.message || 'Pipeline route failed' }, { status: 500 });
+    const isAuthError = error.message.includes('Unauthorized') || error.message.includes('Forbidden');
+    if (!isAuthError) {
+      console.error('Pipeline error:', error);
+    }
+    return NextResponse.json(
+      { error: error.message || 'Pipeline route failed' },
+      { status: error.message.includes('Forbidden') ? 403 : error.message.includes('Unauthorized') ? 401 : 500 }
+    );
   }
 }

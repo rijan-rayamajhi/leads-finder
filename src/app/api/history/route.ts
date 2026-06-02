@@ -1,9 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabase } from '@/lib/supabase';
+import { verifySession } from '@/lib/authGuard';
 
 // GET — fetch search query history, most recently run first
-export async function GET() {
+export async function GET(req: NextRequest) {
   try {
+    // Enforce active approved session authority
+    await verifySession(req);
     const { data: history, error: historyErr } = await supabase
       .from('search_history')
       .select('*')
@@ -52,14 +55,22 @@ export async function GET() {
     return NextResponse.json(enrichedHistory);
   } catch (err: unknown) {
     const error = err as Error;
-    console.error('History GET error:', error);
-    return NextResponse.json({ error: error.message || 'Failed to fetch search history' }, { status: 500 });
+    const isAuthError = error.message.includes('Unauthorized') || error.message.includes('Forbidden');
+    if (!isAuthError) {
+      console.error('History GET error:', error);
+    }
+    return NextResponse.json(
+      { error: error.message || 'Failed to fetch search history' },
+      { status: error.message.includes('Forbidden') ? 403 : error.message.includes('Unauthorized') ? 401 : 500 }
+    );
   }
 }
 
 // DELETE — delete search query history (single item or all)
 export async function DELETE(req: NextRequest) {
   try {
+    // Enforce active approved session authority
+    await verifySession(req);
     const { searchParams } = new URL(req.url);
     const id = searchParams.get('id');
     const all = searchParams.get('all') === 'true';
@@ -94,7 +105,13 @@ export async function DELETE(req: NextRequest) {
     return NextResponse.json({ success: true, message: `History item deleted` });
   } catch (err: unknown) {
     const error = err as Error;
-    console.error('History DELETE error:', error);
-    return NextResponse.json({ error: error.message || 'Failed to delete search history' }, { status: 500 });
+    const isAuthError = error.message.includes('Unauthorized') || error.message.includes('Forbidden');
+    if (!isAuthError) {
+      console.error('History DELETE error:', error);
+    }
+    return NextResponse.json(
+      { error: error.message || 'Failed to delete search history' },
+      { status: error.message.includes('Forbidden') ? 403 : error.message.includes('Unauthorized') ? 401 : 500 }
+    );
   }
 }

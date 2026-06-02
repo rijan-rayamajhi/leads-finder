@@ -1,9 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabase } from '@/lib/supabase';
+import { verifySession } from '@/lib/authGuard';
 
 // GET — fetch leads, score high to low first, uncalled only by default unless called is specified
 export async function GET(req: NextRequest) {
   try {
+    // Enforce active approved session authority
+    await verifySession(req);
     const { searchParams } = new URL(req.url);
     const showAll = searchParams.get('showAll') === 'true';
     const intent = searchParams.get('intent') || 'all'; // 'high' | 'low' | 'all'
@@ -50,13 +53,18 @@ export async function GET(req: NextRequest) {
     return NextResponse.json(data);
   } catch (err: unknown) {
     const error = err as Error;
-    return NextResponse.json({ error: error.message || 'Failed to fetch leads' }, { status: 500 });
+    return NextResponse.json(
+      { error: error.message || 'Failed to fetch leads' },
+      { status: error.message.includes('Forbidden') ? 403 : error.message.includes('Unauthorized') ? 401 : 500 }
+    );
   }
 }
 
 // PATCH — mark a lead as called or update CRM fields
 export async function PATCH(req: NextRequest) {
   try {
+    // Enforce active approved session authority
+    await verifySession(req);
     const body = await req.json();
     const { id } = body;
 
@@ -128,6 +136,9 @@ export async function PATCH(req: NextRequest) {
     return NextResponse.json({ success: true });
   } catch (err: unknown) {
     const error = err as Error;
-    return NextResponse.json({ error: error.message || 'Failed to update lead' }, { status: 500 });
+    return NextResponse.json(
+      { error: error.message || 'Failed to update lead' },
+      { status: error.message.includes('Forbidden') ? 403 : error.message.includes('Unauthorized') ? 401 : 500 }
+    );
   }
 }
