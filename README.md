@@ -1,6 +1,6 @@
-# 🎯 Leads Finder — Local Lead Scraper & outreach CRM
+# 🎯 Aetheron Studio CRM — Local Lead Scraper & Outreach CRM
 
-Leads Finder is a premium, high-intent local business lead finder and CRM system designed for solo operators and digital agencies. The system automates the process of finding local business prospects, auditing their digital presence, scoring the quality of the sales opportunity, and tracking outreach pipelines—all within a single, integrated interface.
+Aetheron Studio CRM is a high-intent local business lead finder and CRM system designed for solo operators and digital agencies. The system automates the process of finding local business prospects, auditing their digital presence, scoring the quality of the sales opportunity, and tracking outreach pipelines—all within a single, integrated interface.
 
 One-line pipeline: **Scrape ➡️ Filter ➡️ Audit & Score ➡️ Store ➡️ Pipeline CRM ➡️ Client Outreach.**
 
